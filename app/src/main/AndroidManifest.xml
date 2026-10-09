@@ -1,14 +1,17 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="org.openlamp.local" android:versionCode="1" android:versionName="0.1.0">
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <application android:label="本地开灯" android:allowBackup="false"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:supportsRtl="true" android:icon="@android:drawable/ic_menu_day">
+    <application
+        android:label="@string/app_name"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="true"
+        android:icon="@android:drawable/ic_menu_day">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

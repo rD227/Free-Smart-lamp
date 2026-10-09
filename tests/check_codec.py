@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Use an independently checked-out upstream codec as the oracle (not a second port).
+"""Regenerate checked-in fixtures from an independent upstream codec (not a second port).
 Usage: python3 tests/check_codec.py /path/to/ha-ble-adv
 OpenSSL supplies AES for the Python reference without installing dependencies.
 """
@@ -52,8 +52,7 @@ for mode in [1,2,3]:
                     packet=encoder._header+body
                     vectors.append(f"{mode} {command} {uid} {sequence} {seed} {packet.hex()}")
 
-output=root/"build/codec-test"
-output.mkdir(parents=True,exist_ok=True)
-subprocess.run(["javac","-d",str(output),str(root/"src/org/openlamp/local/LampCodec.java"),
-                str(root/"tests/CodecCheck.java")],check=True)
-subprocess.run(["java","-cp",str(output),"CodecCheck"],input="\n".join(vectors)+"\n",text=True,check=True)
+output=root/"app/src/test/resources/upstream-vectors.txt"
+output.parent.mkdir(parents=True,exist_ok=True)
+output.write_text("\n".join(vectors)+"\n")
+print(f"Wrote {len(vectors)} independent upstream vectors to {output}")

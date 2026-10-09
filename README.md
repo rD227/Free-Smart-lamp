@@ -44,30 +44,53 @@ Android 手机直接通过 BLE 广播控制 LampSmart Pro 系列灯的实验性�
  协议来源及许可证见 [NOTICE.md](NOTICE.md) 和 [UPSTREAM-LICENSE](UPSTREAM-LICENSE) 
  
 
-## 构建与安装
+## Nvim 与命令行构建
 
-要求 Python 3、JDK（本机使用 21）、Android SDK Platform 36 和 Build Tools 36.0.0 
- Android 最低版本为 8.0，手机还需支持 BLE 广播 
- 构建使用已安装的 SDK，不使用 Gradle，不下载依赖 
- 
+不需要 Android Studio，也不需要系统安装 `gradle` 或 `kotlinc`。需要 JDK（本机使用 21）、Android SDK Platform 36、Build Tools 36.0.0，以及安装真机时使用的 ADB。
 
-在 Android 项目目录执行：
+项目固定使用 Gradle 9.3.0、Android Gradle Plugin 9.0.1；AGP 自带 Kotlin 支持。首次构建会下载缺失的编译器、插件及依赖，以后可复用 `~/.gradle/` 中的缓存。App 本身仍无联网权限。
+
+本机的 `local.properties` 已配置 `sdk.dir=/opt/android-sdk`。其他电脑在项目根目录创建该文件，填写自己的 SDK 路径，或者设置 `ANDROID_HOME`。`local.properties` 不提交到 Git。
 
 ```sh
 cd ~/androidProject/android-lamp-control
-python3 build.py
-adb install -r build/openlamp-local.apk
+./gradlew assembleDebug                # 生成已签名、已对齐的 APK
+./gradlew :app:compileDebugKotlin       # 检查 Kotlin 编译，包括 Android API 引用
+./gradlew testDebugUnitTest lintDebug   # 协议测试与 Android 静态检查
+./gradlew installDebug                 # 安装到已连接的真机
 adb shell am start -n org.openlamp.local/.MainActivity
 ```
 
-SDK 默认目录为 `/opt/android-sdk`，其他位置可通过 `OPENLAMP_SDK` 环境变量指定 
- 脚本在 `.keys/` 创建本地调试签名密钥；保留该文件即可继续覆盖安装 
- 生成的 APK 位于 `build/openlamp-local.apk` 
- 
+最终 APK：`app/build/outputs/apk/debug/app-debug.apk`。也可以直接安装：
+
+```sh
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+在 Nvim 中打开项目根目录后，可用 `:!./gradlew :app:compileDebugKotlin` 或 `:!./gradlew assembleDebug`。LSP 用于补全和即时诊断，实际编译结果以 Gradle 为准。本项目不修改你的 Nvim 配置。
+
+保持 `.keys/debug.keystore`，覆盖安装就能保留已有的控制器编号。新检出且没有密钥时，构建会生成本地调试密钥；不同密钥的 APK 无法覆盖安装之前的版本。包名、SharedPreferences 名称和字段与旧版一致，版本号为 0.2.0 / versionCode 2。
+
+## 项目结构
+
+```text
+app/src/main/java/org/openlamp/local/
+    MainActivity.kt                 蓝牙发送和交互逻辑
+    LampCodec.kt                    三种协议编码
+app/src/main/res/layout/activity_main.xml  界面布局
+app/src/main/res/values/strings.xml        界面文字
+app/src/main/res/values/styles.xml         配色和样式
+app/src/main/AndroidManifest.xml          权限与入口
+app/src/test/                            协议回归测试
+app/build.gradle.kts                     Android 构建配置
+settings.gradle.kts                      模块与依赖仓库
+```
+
+此次迁移保留配对、开灯和关灯功能；亮度、色温控制尚未加入。使用 Android 原生控件，不依赖 Compose 或第三方界面库。
 
 ## 实现与验证
 
-`MainActivity.java` 使用 Android 原生 BLE 广播 API，将协议字节作为 16 位服务 UUID 列表发送 
+`MainActivity.kt` 使用 Android 原生 BLE 广播 API，将协议字节作为 16 位服务 UUID 列表发送
  随机种子生成时排除重复 UUID，避免 Android 去重改变报文 
  默认自动模式依次发送三个协议变体，各广播 650 毫秒 
  
@@ -78,18 +101,19 @@ SDK 默认目录为 `/opt/android-sdk`，其他位置可通过 `OPENLAMP_SDK` �
 | 模式 2 | LampSmart signed V3 |
 | 模式 3 | LampSmart unsigned V2 |
 
-协议转换代码位于 `src/org/openlamp/local/LampCodec.java`，开灯命令为 `0x10`，关灯为 `0x11`，配对为 `0x28` 
+协议转换代码位于 `app/src/main/java/org/openlamp/local/LampCodec.kt`，开灯命令为 `0x10`，关灯为 `0x11`，配对为 `0x28`
  
 
-已验证 APK 构建及签名、在连接的 Android 16 手机上安装运行，以及开灯广播成功完成 
- 编码测试将三种模式、三种命令、不同编号、计数和种子的 324 个组合与上游编码器逐字节比较，全部通过 
- 尚未在用户的灯旁边验证配对和实际开关灯 
+旧版 0.1.0 已在 Android 16 真机上安装运行并完成开灯广播。此次 Kotlin 迁移版本在电脑端检查构建、签名和协议编码；手机当前没有连接，新版仍需安装后确认界面和广播。灯具不在用户身边，实际配对和开关灯尚待验证。
+
+Kotlin 版已通过 APK 构建、签名与对齐检查、协议测试和 Android Lint 检查。编码测试将三种模式、三种命令、不同编号、计数和种子的 324 个组合与上游生成的报文逐字节比较，全部一致，另检查非法输入是否被拒绝。依赖下载完成后，本机已验证可用 `--offline` 构建和测试。
  
 
-重新运行编码比较需要独立的上游检出和 OpenSSL：
+普通测试直接执行 `./gradlew testDebugUnitTest`，测试使用已保存的 324 组上游报文，不依赖原厂 App 或上游仓库。若要重新生成对照报文，则需要 Python 3、OpenSSL 和指定版本的上游检出：
 
 ```sh
 git clone https://github.com/NicoIIT/ha-ble-adv /tmp/openlamp-reference
 git -C /tmp/openlamp-reference checkout 10fb6edac13930cc78a56811147aa8d262d49eb9
 python3 tests/check_codec.py /tmp/openlamp-reference
+./gradlew testDebugUnitTest
 ```

@@ -1,0 +1,77 @@
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace = "org.openlamp.local"
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
+
+    defaultConfig {
+        applicationId = "org.openlamp.local"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            // Reuse the original app's key so updates preserve its controller ID.
+            storeFile = rootProject.file(".keys/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+}
+
+abstract class PrepareLicenseAssets : DefaultTask() {
+    @get:InputFiles
+    abstract val licenseFiles: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun prepare() {
+        val destination = outputDirectory.get().asFile
+        destination.mkdirs()
+        licenseFiles.files.forEach { it.copyTo(destination.resolve(it.name), overwrite = true) }
+    }
+}
+
+val prepareLicenseAssets by tasks.registering(PrepareLicenseAssets::class) {
+    licenseFiles.from(rootProject.file("LICENSE"), rootProject.file("NOTICE.md"), rootProject.file("UPSTREAM-LICENSE"))
+    outputDirectory.set(layout.buildDirectory.dir("license-assets"))
+}
+
+val createDebugKeystore by tasks.registering(Exec::class) {
+    val keystore = rootProject.file(".keys/debug.keystore")
+    onlyIf { !keystore.exists() }
+    doFirst { keystore.parentFile.mkdirs() }
+    commandLine(
+        "${System.getProperty("java.home")}/bin/keytool", "-genkeypair",
+        "-keystore", keystore.absolutePath, "-storepass", "android", "-keypass", "android",
+        "-alias", "androiddebugkey", "-dname", "CN=OpenLamp Local Debug", "-keyalg", "RSA",
+        "-keysize", "2048", "-validity", "3650",
+    )
+}
+
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(prepareLicenseAssets, PrepareLicenseAssets::outputDirectory)
+}
+
+tasks.matching { it.name == "validateSigningDebug" }.configureEach {
+    dependsOn(createDebugKeystore)
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}

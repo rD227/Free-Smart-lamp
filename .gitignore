@@ -1,2 +1,6 @@
 /build/
 /.keys/
+/.gradle/
+/.kotlin/
+/local.properties
+/app/build/
