@@ -11,8 +11,8 @@ android {
         applicationId = "org.openlamp.local"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
 
     signingConfigs {
@@ -22,6 +22,17 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            // Local-use release: the existing key permits updating the installed app.
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
 
@@ -68,7 +79,7 @@ androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(prepareLicenseAssets, PrepareLicenseAssets::outputDirectory)
 }
 
-tasks.matching { it.name == "validateSigningDebug" }.configureEach {
+tasks.matching { it.name in setOf("validateSigningDebug", "validateSigningRelease") }.configureEach {
     dependsOn(createDebugKeystore)
 }
 

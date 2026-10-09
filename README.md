@@ -55,6 +55,7 @@ Android 手机直接通过 BLE 广播控制 LampSmart Pro 系列灯的实验性�
 ```sh
 cd ~/androidProject/android-lamp-control
 ./gradlew assembleDebug                # 生成已签名、已对齐的 APK
+./gradlew assembleRelease              # 生成签名后的 R8 压缩版 APK
 ./gradlew :app:compileDebugKotlin       # 检查 Kotlin 编译，包括 Android API 引用
 ./gradlew testDebugUnitTest lintDebug   # 协议测试与 Android 静态检查
 ./gradlew installDebug                 # 安装到已连接的真机
@@ -69,7 +70,37 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 在 Nvim 中打开项目根目录后，可用 `:!./gradlew :app:compileDebugKotlin` 或 `:!./gradlew assembleDebug`。LSP 用于补全和即时诊断，实际编译结果以 Gradle 为准。本项目不修改你的 Nvim 配置。
 
-保持 `.keys/debug.keystore`，覆盖安装就能保留已有的控制器编号。新检出且没有密钥时，构建会生成本地调试密钥；不同密钥的 APK 无法覆盖安装之前的版本。包名、SharedPreferences 名称和字段与旧版一致，版本号为 0.2.0 / versionCode 2。
+保持 `.keys/debug.keystore`，覆盖安装就能保留已有的控制器编号。新检出且没有密钥时，构建会生成本地调试密钥；不同密钥的 APK 无法覆盖安装之前的版本。包名、SharedPreferences 名称和字段与旧版一致，当前版本号为 0.2.1 / versionCode 3。
+
+### Release 版本
+
+Release 开启 R8 代码精简、优化、混淆及资源精简，使用 Android 默认的优化规则；App 没有反射加载自身类的代码，因此不添加整包保留规则。Release 关闭调试，沿用 `.keys/debug.keystore` 中现有的本地密钥，便于覆盖安装之前的 debug 版并保留控制器编号。
+
+```sh
+./gradlew assembleRelease
+./gradlew testDebugUnitTest lintRelease
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
+
+最终文件为 `app/build/outputs/apk/release/app-release.apk`，已签名，可直接安装。混淆映射保存在 `app/build/outputs/mapping/release/mapping.txt`，排查该版本的崩溃日志时应保存对应映射。
+
+### 在 Windows 上编译
+
+复制完整项目及隐藏目录 `.keys/`。签名文件为 `.keys/debug.keystore`，存储密码和密钥密码均为 `android`，密钥别名为 `androiddebugkey`。它被 Git 忽略，因此仅复制 Git 中的文件不会包含密钥。
+
+Windows 需要安装 JDK 21、Android SDK Platform 36 和 Build Tools 36.0.0；不需要单独安装 Kotlin 或 Gradle。修改本机 `local.properties` 中的 `sdk.dir`，指向 Windows 的 SDK 目录，路径可使用正斜杠，例如：
+
+```properties
+sdk.dir=C:/Users/你的用户名/AppData/Local/Android/Sdk
+```
+
+在项目根目录打开 PowerShell：
+
+```powershell
+.\gradlew.bat assembleRelease
+```
+
+Windows 首次构建会下载所需的 Gradle 和依赖；Linux 的 `.gradle/`、`build/` 及 `app/build/` 不必复制。
 
 ## 项目结构
 
