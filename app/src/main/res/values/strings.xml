@@ -63,6 +63,10 @@
     <string name="close">取消</string>
     <string name="appearance_title">个性化</string>
     <string name="system_colors">跟随系统配色</string>
+    <string name="system_colors_ring_hint">请先关闭「跟随系统配色」，再滑动色环。</string>
     <string name="theme_color">主题颜色</string>
     <string name="theme_hue">主题色环，色相 %1$d 度</string>
+    <string name="theme_whiteness">主题白度环，白度 %1$d%%</string>
+    <string name="theme_whiteness_value">白度 %1$d%%</string>
+    <string name="theme_rings_help">内圈选颜色，外圈加白色。让主题柔和一点。</string>
 </resources>

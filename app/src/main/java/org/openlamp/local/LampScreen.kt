@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.SweepGradient
 import android.graphics.Typeface
@@ -27,9 +29,15 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnPreDraw
 import androidx.core.widget.NestedScrollView
+import androidx.dynamicanimation.animation.DynamicAnimation
+import androidx.dynamicanimation.animation.FloatPropertyCompat
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
@@ -53,9 +61,10 @@ import kotlin.math.sin
 import com.google.android.material.R as MaterialR
 
 // Wave motion is independent of the actual Bluetooth transmission duration.
-private const val SEND_WAVE_SPEED_DP_PER_SECOND = 32
+private const val SEND_WAVE_SPEED_DP_PER_SECOND = 15
 private const val SEND_WAVELENGTH_DP = 28
 private const val SEND_WAVE_AMPLITUDE_DP = 3
+private const val LIGHTING_HALO_MAX_ALPHA = 0.5f
 
 data class LampScreenCallbacks(
     val onPower: (Boolean) -> Unit,
@@ -88,10 +97,13 @@ class LampScreen(
     private lateinit var lightingModes: MaterialButtonToggleGroup
     private lateinit var lightingModeHelp: TextView
     private var updatingLightingMode = false
+    private var themeHint: Toast? = null
     private var progressAnimator: ValueAnimator? = null
     private var clockRunning = false
     private lateinit var status: TextView
     private lateinit var progress: LinearProgressIndicator
+    private lateinit var continuousWave: ContinuousWaveView
+    private lateinit var applyLightingButton: MaterialButton
     private lateinit var warmth: Slider
     private lateinit var brightness: Slider
     private lateinit var warmthValue: TextView
@@ -103,6 +115,8 @@ class LampScreen(
     private val scroll = NestedScrollView(context).apply {
         id = R.id.page
         isFillViewport = true
+        // Our Activity restores scrolling before the first frame; avoid a second restorer.
+        isSaveEnabled = false
         clipToPadding = true
         isVerticalScrollBarEnabled = false
         setBackgroundColor(colors.surface)
@@ -188,7 +202,15 @@ class LampScreen(
             visibility = View.INVISIBLE
             contentDescription = context.getString(R.string.sending_progress)
         }
-        body.addView(progress, fullWidth(dp(16)).apply { topMargin = dp(4); bottomMargin = dp(16) })
+        continuousWave = ContinuousWaveView(context, colors.primary).apply {
+            id = R.id.live_send_wave
+            visibility = View.INVISIBLE
+            contentDescription = context.getString(R.string.sending_progress)
+        }
+        body.addView(FrameLayout(context).apply {
+            addView(progress, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(continuousWave, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }, fullWidth(dp(16)).apply { topMargin = dp(4); bottomMargin = dp(16) })
         val buttons = row()
         buttons.addView(button(context.getString(R.string.turn_on), R.id.turn_on) { callbacks.onPower(true) }, equalWidth())
         buttons.addView(button(context.getString(R.string.turn_off), R.id.turn_off, tonal = true) { callbacks.onPower(false) }, equalWidth().apply { marginStart = dp(12) })
@@ -237,17 +259,18 @@ class LampScreen(
         }
         lightingControls.add(brightness)
         body.addView(brightness, fullWidth(dp(48)))
-        body.addView(button(context.getString(R.string.apply_lighting), R.id.apply_lighting, tonal = true) {
-            callbacks.onApplyLighting(warmth.value.roundToInt(), brightness.value.roundToInt())
-        }.also { lightingControls.add(it) }, fullWidth(dp(52)).apply { topMargin = dp(12) })
-        lightingModes = MaterialButtonToggleGroup(context).apply {
+        lightingModes = AnimatedLightingModes(context, colors).apply {
             id = R.id.lighting_apply_mode
             isSingleSelection = true
             isSelectionRequired = true
             isSaveEnabled = false
             contentDescription = context.getString(R.string.lighting_apply_mode)
         }
-        LightingApplyMode.entries.forEach { mode ->
+        applyLightingButton = button(context.getString(R.string.apply_lighting), R.id.apply_lighting, tonal = true) {
+            callbacks.onApplyLighting(warmth.value.roundToInt(), brightness.value.roundToInt())
+        }.also { lightingControls.add(it) }
+        body.addView(applyLightingButton, fullWidth(dp(52)).apply { topMargin = dp(12) })
+        listOf(LightingApplyMode.WHILE_SLIDING, LightingApplyMode.ON_RELEASE, LightingApplyMode.MANUAL).forEach { mode ->
             val segment = MaterialButton(context, null, MaterialR.attr.materialButtonOutlinedStyle).apply {
                 id = lightingModeId(mode)
                 text = context.getString(lightingModeLabel(mode))
@@ -260,12 +283,8 @@ class LampScreen(
                 minimumWidth = 0
                 minWidth = 0
                 setPadding(dp(4), 0, dp(4), 0)
-                strokeWidth = dp(1)
-                strokeColor = ColorStateList.valueOf(colors.outline)
-                backgroundTintList = ColorStateList(
-                    arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                    intArrayOf(withAlpha(colors.onSurface, 0.12f), colors.primaryContainer, colors.card),
-                )
+                strokeWidth = 0
+                backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
                 setTextColor(ColorStateList(
                     arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
                     intArrayOf(withAlpha(colors.onSurface, 0.38f), colors.onPrimaryContainer, colors.secondaryText),
@@ -292,7 +311,10 @@ class LampScreen(
             if (fromUser) editLighting(gestureEnded = source !in trackingSliders)
         }
         slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-            override fun onStartTrackingTouch(slider: Slider) { trackingSliders.add(slider) }
+            override fun onStartTrackingTouch(slider: Slider) {
+                trackingSliders.add(slider)
+                if (state.lightingApplyMode == LightingApplyMode.WHILE_SLIDING) showFullWave()
+            }
             override fun onStopTrackingTouch(slider: Slider) {
                 trackingSliders.remove(slider)
                 editLighting(gestureEnded = true)
@@ -353,17 +375,44 @@ class LampScreen(
         controls.add(system)
         body.addView(system, fullWidth().apply { topMargin = dp(4) })
         val picker = row().apply { gravity = Gravity.CENTER_VERTICAL }
-        val wheel = ColorWheelView(context, appearance.seed, colors).apply {
+        val wheel = ColorRingView(context, appearance.wheelColor, RingKind.HUE, colors).apply {
             id = R.id.color_wheel
             isEnabled = !appearance.useSystemM3
             alpha = if (isEnabled) 1f else 0.35f
-            onColorSelected = { color -> callbacks.onThemeChanged(appearance.copy(useSystemM3 = false, colorPack = ColorPack.CUSTOM, customColor = color)) }
+            blockedBySystemColors = appearance.useSystemM3
+            onBlockedInteraction = ::showSystemColorHint
+        }
+        val whiteRing = ColorRingView(context, appearance.wheelColor, RingKind.WHITENESS, colors).apply {
+            id = R.id.white_ring
+            isEnabled = !appearance.useSystemM3
+            alpha = if (isEnabled) 1f else 0.35f
+            blockedBySystemColors = appearance.useSystemM3
+            onBlockedInteraction = ::showSystemColorHint
+        }
+        val colorLabel = text(context.getString(R.string.theme_whiteness_value, (appearance.wheelColor.whiteness * 100).roundToInt()), 12, colors.secondaryText).apply {
+            id = R.id.theme_whiteness_value
+            gravity = Gravity.CENTER
+        }
+        val preview: (ThemeColor) -> Unit = { selection ->
+            wheel.selection = selection
+            whiteRing.selection = selection
+            colorLabel.text = context.getString(R.string.theme_whiteness_value, (selection.whiteness * 100).roundToInt())
+        }
+        val commit: (ThemeColor) -> Unit = { callbacks.onThemeChanged(appearance.withCustomColor(it)) }
+        wheel.onPreview = preview
+        whiteRing.onPreview = preview
+        wheel.onColorSelected = commit
+        whiteRing.onColorSelected = commit
+        val rings = FrameLayout(context).apply {
+            addView(whiteRing, FrameLayout.LayoutParams(dp(180), dp(180), Gravity.CENTER))
+            addView(wheel, FrameLayout.LayoutParams(dp(128), dp(128), Gravity.CENTER))
         }
         picker.addView(column().apply {
-            addView(wheel, fullWidth(dp(116)))
-            addView(text(context.getString(R.string.theme_color), 12, colors.secondaryText).apply { gravity = Gravity.CENTER }, fullWidth())
-        }, LinearLayout.LayoutParams(dp(116), ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(rings, fullWidth(dp(180)))
+            addView(colorLabel, fullWidth())
+        }, LinearLayout.LayoutParams(dp(180), ViewGroup.LayoutParams.WRAP_CONTENT))
         controls.add(wheel)
+        controls.add(whiteRing)
         val palette = chips()
         ColorPack.entries.filter { it != ColorPack.CUSTOM }.forEach { pack ->
             palette.addView(chip(pack.label).apply {
@@ -376,8 +425,9 @@ class LampScreen(
                 setOnClickListener { callbacks.onThemeChanged(appearance.copy(useSystemM3 = false, colorPack = pack)) }
             })
         }
-        picker.addView(palette, weighted().apply { marginStart = dp(16) })
+        picker.addView(palette, weighted().apply { marginStart = dp(12) })
         body.addView(picker, fullWidth().apply { topMargin = dp(6) })
+        body.addView(text(context.getString(R.string.theme_rings_help), 12, colors.secondaryText), fullWidth().apply { topMargin = dp(12) })
     }
 
     private fun buildPairing() {
@@ -395,13 +445,20 @@ class LampScreen(
         body.addView(modeButton, fullWidth(dp(48)).apply { topMargin = dp(10) })
     }
 
+    private fun showSystemColorHint() {
+        themeHint?.cancel()
+        themeHint = Toast.makeText(context, R.string.system_colors_ring_hint, Toast.LENGTH_SHORT).also { it.show() }
+    }
+
     fun update(next: LampState) {
         val wasBusy = state.busy
         val previousTransmissionId = state.transmissionId
+        val wasContinuous = continuousWave.visibility == View.VISIBLE
         state = next
         status.text = next.status
         controls.forEach { it.isEnabled = !next.busy }
         lightingControls.forEach { it.isEnabled = !next.busy || next.sendingLighting }
+        applyLightingButton.visibility = if (next.lightingApplyMode == LightingApplyMode.MANUAL) View.VISIBLE else View.GONE
         updatingLightingMode = true
         lightingModes.check(lightingModeId(next.lightingApplyMode))
         updatingLightingMode = false
@@ -411,9 +468,11 @@ class LampScreen(
             LightingApplyMode.MANUAL -> R.string.apply_manually_help
         })
         // Theme colors remain available only when the system-color switch is off.
-        page.findViewById<View>(R.id.color_wheel)?.apply {
-            isEnabled = !next.busy && !appearance.useSystemM3
-            alpha = if (isEnabled) 1f else 0.35f
+        listOf(R.id.color_wheel, R.id.white_ring).forEach { id ->
+            page.findViewById<View>(id)?.apply {
+                isEnabled = !next.busy && !appearance.useSystemM3
+                alpha = if (isEnabled) 1f else 0.35f
+            }
         }
         controls.filterIsInstance<Chip>().filter { it.chipIcon is DotDrawable }.forEach { it.isEnabled = !next.busy && !appearance.useSystemM3 }
         if (warmth.value.roundToInt() != next.warmth) warmth.value = next.warmth.toFloat()
@@ -425,7 +484,13 @@ class LampScreen(
         timerButton.text = context.getString(R.string.set_timer_minutes, next.timerMinutes)
         modeButton.text = context.resources.getStringArray(R.array.compatibility_modes)[next.mode]
         updateTimerSummary()
-        if (next.busy && (!wasBusy || next.transmissionId != previousTransmissionId)) {
+        val showContinuous = next.lightingApplyMode == LightingApplyMode.WHILE_SLIDING &&
+            (trackingSliders.isNotEmpty() || next.busy && next.sendingLighting)
+        continuousWave.visibility = if (showContinuous) View.VISIBLE else View.INVISIBLE
+        continuousWave.setRunning(showContinuous)
+        if (showContinuous) {
+            showFullWave()
+        } else if (next.busy && (!wasBusy || next.transmissionId != previousTransmissionId || wasContinuous)) {
             handler.removeCallbacksAndMessages(null)
             progress.visibility = View.VISIBLE
             progress.setProgressCompat(0, false)
@@ -437,11 +502,19 @@ class LampScreen(
                 start()
             }
             if (clockRunning) handler.post(clock)
-        } else if (!next.busy && wasBusy) {
+        } else if (!next.busy && wasBusy && !wasContinuous) {
             progressAnimator?.cancel()
             progress.setProgressCompat(1000, true)
             handler.postDelayed({ if (!state.busy) progress.visibility = View.INVISIBLE }, 200)
         }
+    }
+
+    private fun showFullWave() {
+        progressAnimator?.cancel()
+        progressAnimator = null
+        progress.visibility = View.INVISIBLE
+        continuousWave.visibility = View.VISIBLE
+        continuousWave.setRunning(true)
     }
 
     private fun editLighting(gestureEnded: Boolean) {
@@ -498,10 +571,10 @@ class LampScreen(
         dialog.show()
     }
 
-    fun restoreScroll(position: Int) { scroll.post { scroll.scrollTo(0, position) } }
+    fun restoreScroll(position: Int) { scroll.doOnPreDraw { scroll.scrollTo(0, position) } }
     fun startClock() { if (!clockRunning) { clockRunning = true; handler.post(clock) } }
     fun stopClock() { clockRunning = false; handler.removeCallbacks(clock) }
-    fun dispose() { stopClock(); handler.removeCallbacksAndMessages(null); progressAnimator?.cancel() }
+    fun dispose() { stopClock(); handler.removeCallbacksAndMessages(null); progressAnimator?.cancel(); continuousWave.setRunning(false); themeHint?.cancel() }
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).roundToInt()
     private fun text(value: String, size: Int, color: Int, bold: Boolean = false) = TextView(context).apply {
@@ -579,7 +652,7 @@ class LampScreen(
         chipStrokeWidth = 0f
         controls.add(this)
     }
-    private fun slider(from: Int, to: Int, value: Int, viewId: Int) = Slider(context).apply {
+    private fun slider(from: Int, to: Int, value: Int, viewId: Int) = LightingSlider(context).apply {
         id = viewId
         isSaveEnabled = false
         valueFrom = from.toFloat()
@@ -591,57 +664,304 @@ class LampScreen(
         trackActiveTintList = ColorStateList.valueOf(colors.primary)
         trackInactiveTintList = ColorStateList.valueOf(colors.high)
         thumbTintList = ColorStateList.valueOf(colors.primary)
-        haloTintList = ColorStateList.valueOf(colors.primary)
         tickVisibilityMode = TickVisibilityMode.TICK_VISIBILITY_HIDDEN
         setLabelFormatter { context.getString(R.string.percent, it.roundToInt()) }
         controls.add(this)
     }
 }
 
-/** Theme-only hue picker; keyboard and accessibility actions offer the same control as touch. */
+/** Keep Material's slider behavior; paint the drag halo above both track segments. */
+@SuppressLint("ViewConstructor")
+private class LightingSlider(context: Context) : Slider(context) {
+    private val density = resources.displayMetrics.density
+    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var haloOpacity = 0f
+    private var haloAnimator: ValueAnimator? = null
+    private var dragging = false
+
+    init {
+        haloRadius = 0
+        haloTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+        addOnSliderTouchListener(object : OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) { dragging = true; animateHalo(LIGHTING_HALO_MAX_ALPHA) }
+            override fun onStopTrackingTouch(slider: Slider) { dragging = false; animateHalo(0f) }
+        })
+    }
+
+    private fun animateHalo(target: Float) {
+        haloAnimator?.cancel()
+        haloAnimator = ValueAnimator.ofFloat(haloOpacity, target).apply {
+            duration = 120L
+            addUpdateListener {
+                haloOpacity = (it.animatedValue as Float).coerceIn(0f, LIGHTING_HALO_MAX_ALPHA)
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (!isEnabled || haloOpacity <= 0f) return
+        var fraction = (value - valueFrom) / (valueTo - valueFrom)
+        if (layoutDirection == View.LAYOUT_DIRECTION_RTL) fraction = 1f - fraction
+        val x = trackSidePadding + trackWidth * fraction
+        val y = height / 2f
+        val tint = thumbTintList.getColorForState(drawableState, thumbTintList.defaultColor)
+        haloPaint.color = tint
+        haloPaint.alpha = (haloOpacity * 255).roundToInt()
+        canvas.drawCircle(x, y, 22 * density, haloPaint)
+        // Keep the solid thumb clear while the translucent halo overlays the inactive track.
+        haloPaint.alpha = 255
+        canvas.drawCircle(x, y, thumbRadius.toFloat(), haloPaint)
+    }
+
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+        if (!dragging) animateHalo(if (gainFocus && !isInTouchMode) LIGHTING_HALO_MAX_ALPHA else 0f)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val handled = super.onTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_CANCEL) { dragging = false; animateHalo(0f) }
+        return handled
+    }
+
+    override fun onDetachedFromWindow() {
+        haloAnimator?.cancel()
+        haloOpacity = 0f
+        super.onDetachedFromWindow()
+    }
+}
+
+/** A full-length wave for live sending; packet changes never reset its phase or length. */
+@SuppressLint("ViewConstructor")
+private class ContinuousWaveView(context: Context, tint: Int) : View(context) {
+    private val density = resources.displayMetrics.density
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = tint
+        style = Paint.Style.STROKE
+        strokeWidth = 4 * density
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val path = Path()
+    private var phase = 0f
+    private var animator: ValueAnimator? = null
+
+    fun setRunning(running: Boolean) {
+        if (!running) { animator?.cancel(); animator = null; return }
+        if (animator != null || SEND_WAVE_SPEED_DP_PER_SECOND <= 0) return
+        animator = ValueAnimator.ofFloat(0f, SEND_WAVELENGTH_DP * density).apply {
+            duration = 1000L * SEND_WAVELENGTH_DP / SEND_WAVE_SPEED_DP_PER_SECOND
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener { phase = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val inset = paint.strokeWidth / 2f
+        val wavelength = SEND_WAVELENGTH_DP * density
+        val amplitude = SEND_WAVE_AMPLITUDE_DP * density
+        path.rewind()
+        var x = inset
+        while (x <= width - inset) {
+            val y = height / 2f + amplitude * sin((x - phase) * 2 * Math.PI / wavelength).toFloat()
+            if (x == inset) path.moveTo(x, y) else path.lineTo(x, y)
+            x += 2 * density
+        }
+        canvas.drawPath(path, paint)
+    }
+
+    override fun onDetachedFromWindow() { setRunning(false); super.onDetachedFromWindow() }
+}
+
+/** Material's single-selection semantics with a sliding pill inspired by WireFstm's bottom bar. */
+@SuppressLint("ViewConstructor")
+private class AnimatedLightingModes(context: Context, private val colors: LampColors) : MaterialButtonToggleGroup(context) {
+    private val density = resources.displayMetrics.density
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val bounds = RectF()
+    private val clip = Path()
+    private var selectedId = View.NO_ID
+    private var indicatorLeft = 0f
+    private var indicatorWidth = 0f
+    private var previousWidth = 0
+    private val pulses = mutableMapOf<Int, Pair<SpringAnimation, SpringAnimation>>()
+    private val position = object : FloatPropertyCompat<AnimatedLightingModes>("indicatorLeft") {
+        override fun getValue(view: AnimatedLightingModes) = view.indicatorLeft
+        override fun setValue(view: AnimatedLightingModes, value: Float) { view.indicatorLeft = value; view.invalidate() }
+    }
+    private val slide = SpringAnimation(this, position).apply {
+        spring = SpringForce().setDampingRatio(0.5f).setStiffness(SpringForce.STIFFNESS_LOW)
+    }
+
+    init {
+        setWillNotDraw(false)
+        addOnButtonCheckedListener { _, id, checked ->
+            if (checked && id != selectedId) {
+                selectedId = id
+                val button = findViewById<MaterialButton>(id)
+                if (isLaidOut && button.width > 0) {
+                    val target = button.left + 3 * density
+                    indicatorWidth = button.width - 6 * density
+                    if (ValueAnimator.areAnimatorsEnabled()) {
+                        slide.animateToFinalPosition(target)
+                        val pulse = pulses.getOrPut(id) {
+                            SpringAnimation(button, DynamicAnimation.SCALE_X).apply {
+                                spring = SpringForce(1f).setDampingRatio(0.5f).setStiffness(SpringForce.STIFFNESS_LOW)
+                            } to SpringAnimation(button, DynamicAnimation.SCALE_Y).apply {
+                                spring = SpringForce(1f).setDampingRatio(0.5f).setStiffness(SpringForce.STIFFNESS_LOW)
+                            }
+                        }
+                        pulse.first.cancel(); pulse.second.cancel()
+                        button.scaleX = 1.08f; button.scaleY = 1.04f
+                        pulse.first.start(); pulse.second.start()
+                    } else { slide.cancel(); indicatorLeft = target; invalidate() }
+                }
+            }
+        }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (previousWidth != width) {
+            previousWidth = width
+            findViewById<MaterialButton>(selectedId)?.let {
+                slide.cancel()
+                indicatorLeft = it.left + 3 * density
+                indicatorWidth = it.width - 6 * density
+                invalidate()
+            }
+        }
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        val saved = canvas.save()
+        bounds.set(0f, 0f, width.toFloat(), height.toFloat())
+        clip.rewind()
+        clip.addRoundRect(bounds, 24 * density, 24 * density, Path.Direction.CW)
+        canvas.clipPath(clip)
+        paint.style = Paint.Style.FILL
+        paint.color = colors.card
+        canvas.drawRect(bounds, paint)
+        if (indicatorWidth > 0) {
+            bounds.set(indicatorLeft, 3 * density, indicatorLeft + indicatorWidth, height - 3 * density)
+            paint.color = colors.primaryContainer
+            paint.alpha = if (findViewById<View>(selectedId)?.isEnabled == true) 255 else 96
+            canvas.drawRoundRect(bounds, 21 * density, 21 * density, paint)
+            paint.alpha = 255
+        }
+        super.dispatchDraw(canvas)
+        paint.style = Paint.Style.STROKE
+        paint.color = colors.outline
+        paint.strokeWidth = density
+        bounds.set(density / 2, density / 2, width - density / 2, height - density / 2)
+        canvas.drawRoundRect(bounds, 24 * density, 24 * density, paint)
+        canvas.restoreToCount(saved)
+    }
+
+    override fun onDetachedFromWindow() {
+        slide.cancel()
+        pulses.values.forEach { it.first.cancel(); it.second.cancel() }
+        super.onDetachedFromWindow()
+    }
+}
+
+private enum class RingKind { HUE, WHITENESS }
+
+/** Separate accessible range controls share a color preview and commit only on release. */
 @SuppressLint("ViewConstructor") // Constructed only by LampScreen, never inflated from XML.
-private class ColorWheelView(context: Context, seed: Int, private val colors: LampColors) : View(context) {
+private class ColorRingView(
+    context: Context,
+    initial: ThemeColor,
+    private val kind: RingKind,
+    private val colors: LampColors,
+) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val density = resources.displayMetrics.density
-    private var hue = FloatArray(3).also { Color.colorToHSV(seed, it) }[0]
-    private var ringGradient: SweepGradient? = null
-    var onColorSelected: (Int) -> Unit = {}
-    private val selectedColor: Int get() = Color.HSVToColor(floatArrayOf(hue, 0.65f, 0.85f))
+    private val arcBounds = RectF()
+    private var gradient: SweepGradient? = null
+    private var gestureStart = initial
+    var onPreview: (ThemeColor) -> Unit = {}
+    var onColorSelected: (ThemeColor) -> Unit = {}
+    var blockedBySystemColors = false
+    var onBlockedInteraction: () -> Unit = {}
+    var selection = initial
+        set(value) {
+            val hueChanged = field.hue != value.hue || field.baseValue != value.baseValue
+            field = value
+            if (hueChanged && kind == RingKind.WHITENESS) updateGradient()
+            updateDescription()
+            invalidate()
+        }
+    private val maximum get() = if (kind == RingKind.HUE) 360f else 100f
+    private val value get() = if (kind == RingKind.HUE) selection.hue else selection.whiteness * 100f
+    private val radius get() = min(width, height) / 2f - 12 * density
 
     init { isFocusable = true; isClickable = true; updateDescription() }
-    private fun updateDescription() { contentDescription = context.getString(R.string.theme_hue, hue.roundToInt()) }
-    private fun pick(x: Float, y: Float) {
-        hue = ((Math.toDegrees(atan2((y - height / 2).toDouble(), (x - width / 2).toDouble())) + 360) % 360).toFloat()
-        updateDescription()
-        invalidate()
+
+    private fun updateDescription() {
+        contentDescription = context.getString(
+            if (kind == RingKind.HUE) R.string.theme_hue else R.string.theme_whiteness,
+            value.roundToInt(),
+        )
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        ringGradient = SweepGradient(w / 2f, h / 2f, intArrayOf(Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED), null)
+    private fun updateGradient() {
+        val x = width / 2f
+        val y = height / 2f
+        gradient = if (kind == RingKind.HUE) {
+            SweepGradient(x, y, intArrayOf(Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED), null)
+        } else {
+            SweepGradient(x, y, intArrayOf(selection.copy(whiteness = 0f).argb, Color.WHITE, Color.WHITE), floatArrayOf(0f, 300f / 360f, 1f)).apply {
+                setLocalMatrix(Matrix().apply { setRotate(120f, x, y) })
+            }
+        }
     }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { updateGradient() }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val x = width / 2f
         val y = height / 2f
-        val radius = min(width, height) / 2f - 12 * density
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 16 * density
-        paint.shader = ringGradient
-        canvas.drawCircle(x, y, radius, paint)
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.shader = gradient
+        if (kind == RingKind.HUE) canvas.drawCircle(x, y, radius, paint)
+        else {
+            paint.strokeCap = Paint.Cap.BUTT
+            arcBounds.set(x - radius, y - radius, x + radius, y + radius)
+            canvas.drawArc(arcBounds, 120f, 300f, false, paint)
+            paint.shader = null
+            paint.style = Paint.Style.FILL
+            paint.color = selection.copy(whiteness = 0f).argb
+            canvas.drawCircle(x - radius * 0.5f, y + radius * 0.8660254f, 8 * density, paint)
+            paint.color = Color.WHITE
+            canvas.drawCircle(x + radius * 0.5f, y + radius * 0.8660254f, 8 * density, paint)
+        }
         paint.shader = null
         paint.style = Paint.Style.FILL
-        paint.color = colors.primaryContainer
-        canvas.drawCircle(x, y, radius - 19 * density, paint)
-        paint.color = colors.primary
-        canvas.drawCircle(x, y, 9 * density, paint)
-        val angle = Math.toRadians(hue.toDouble())
+        if (kind == RingKind.HUE) {
+            paint.color = colors.high
+            canvas.drawCircle(x, y, radius - 18 * density, paint)
+            paint.color = selection.argb
+            canvas.drawCircle(x, y, radius - 23 * density, paint)
+        }
+        val angle = Math.toRadians(if (kind == RingKind.HUE) selection.hue.toDouble() else 120.0 + selection.whiteness * 300.0)
         val px = x + radius * cos(angle).toFloat()
         val py = y + radius * sin(angle).toFloat()
+        // A dark outline keeps both handles visible against pale colors and white.
+        paint.color = colors.outline
+        canvas.drawCircle(px, py, 11 * density, paint)
         paint.color = Color.WHITE
-        canvas.drawCircle(px, py, 10 * density, paint)
-        paint.color = selectedColor
-        canvas.drawCircle(px, py, 6.5f * density, paint)
+        canvas.drawCircle(px, py, 9 * density, paint)
+        paint.color = if (kind == RingKind.HUE) selection.copy(whiteness = 0f).argb else selection.argb
+        canvas.drawCircle(px, py, 6 * density, paint)
         if (isFocused) {
             paint.style = Paint.Style.STROKE
             paint.color = colors.primary
@@ -650,33 +970,72 @@ private class ColorWheelView(context: Context, seed: Int, private val colors: La
         }
     }
 
+    private fun angle(x: Float, y: Float) = ((Math.toDegrees(atan2((y - height / 2f).toDouble(), (x - width / 2f).toDouble())) + 360) % 360).toFloat()
+
+    private fun pick(x: Float, y: Float) {
+        val hue = angle(x, y)
+        val next = if (kind == RingKind.HUE) selection.copy(hue = hue) else {
+            val offset = (hue - 120f + 360f) % 360f
+            val clamped = when {
+                offset <= 300f -> offset
+                offset < 330f -> 300f
+                else -> 0f
+            }
+            selection.copy(whiteness = clamped / 300f)
+        }
+        selection = next
+        onPreview(next)
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!isEnabled) return false
+        if (!isEnabled && !blockedBySystemColors) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 val distance = hypot(event.x - width / 2f, event.y - height / 2f)
-                if (distance < min(width, height) / 2f - 32 * density) return false
+                if (distance < radius - 13 * density || distance > radius + 12 * density) return false
+                if (kind == RingKind.WHITENESS) {
+                    val offset = (angle(event.x, event.y) - 120f + 360f) % 360f
+                    // Include the rounded end caps so 0% and 100% are easy to touch.
+                    if (offset > 315f && offset < 345f) return false
+                }
+                gestureStart = selection
                 parent.requestDisallowInterceptTouchEvent(true)
-                isPressed = true
-                pick(event.x, event.y)
+                if (blockedBySystemColors) onBlockedInteraction()
+                else { isPressed = true; pick(event.x, event.y) }
             }
-            MotionEvent.ACTION_MOVE -> pick(event.x, event.y)
-            MotionEvent.ACTION_UP -> { pick(event.x, event.y); isPressed = false; parent.requestDisallowInterceptTouchEvent(false); performClick() }
-            MotionEvent.ACTION_CANCEL -> { isPressed = false; parent.requestDisallowInterceptTouchEvent(false) }
+            MotionEvent.ACTION_MOVE -> if (!blockedBySystemColors) pick(event.x, event.y)
+            MotionEvent.ACTION_UP -> {
+                isPressed = false
+                parent.requestDisallowInterceptTouchEvent(false)
+                if (!blockedBySystemColors) { pick(event.x, event.y); performClick() }
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                if (!blockedBySystemColors) { selection = gestureStart; onPreview(gestureStart) }
+                isPressed = false
+                parent.requestDisallowInterceptTouchEvent(false)
+            }
         }
         return true
     }
 
     override fun performClick(): Boolean {
         super.performClick()
-        if (isEnabled) onColorSelected(selectedColor)
+        if (blockedBySystemColors) onBlockedInteraction()
+        else if (isEnabled) onColorSelected(selection)
         return true
     }
 
+    private fun setValue(newValue: Float) {
+        selection = if (kind == RingKind.HUE) selection.copy(hue = (newValue % 360f + 360f) % 360f)
+        else selection.copy(whiteness = newValue.coerceIn(0f, 100f) / 100f)
+        onPreview(selection)
+        onColorSelected(selection)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (isEnabled && keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)) {
-            hue = (hue + (if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) 345 else 15)) % 360
-            updateDescription(); invalidate(); onColorSelected(selectedColor)
+        if (isEnabled && keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN)) {
+            val direction = if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) -1 else 1
+            setValue(value + direction * if (kind == RingKind.HUE) 15f else 5f)
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -686,21 +1045,25 @@ private class ColorWheelView(context: Context, seed: Int, private val colors: La
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
         info.className = "android.widget.SeekBar"
-        info.rangeInfo = AccessibilityNodeInfo.RangeInfo.obtain(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, 0f, 360f, hue)
-        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)
-        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
-        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+        info.rangeInfo = AccessibilityNodeInfo.RangeInfo.obtain(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, 0f, maximum, value)
+        if (isEnabled) {
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD)
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD)
+        }
     }
 
     override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
         if (!isEnabled) return super.performAccessibilityAction(action, arguments)
-        hue = when (action) {
-            AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id -> arguments?.getFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE)?.coerceIn(0f, 360f) ?: return false
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> (hue + 15) % 360
-            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> (hue + 345) % 360
+        val step = if (kind == RingKind.HUE) 15f else 5f
+        val target = when (action) {
+            AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id -> arguments?.getFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE)?.coerceIn(0f, maximum) ?: return false
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> value + step
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> value - step
             else -> return super.performAccessibilityAction(action, arguments)
         }
-        updateDescription(); invalidate(); onColorSelected(selectedColor)
+        if (!target.isFinite()) return false
+        setValue(target)
         return true
     }
 }

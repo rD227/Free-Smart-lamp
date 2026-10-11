@@ -100,6 +100,7 @@ class LampController(private val context: Context, private val prefs: SharedPref
 
     private fun saveLighting(values: LightingValues) {
         val (warmth, brightness) = values
+        if (state.warmth == warmth && state.brightness == brightness) return
         prefs.edit().putInt("warmth", warmth).putInt("brightness", brightness).apply()
         update(state.copy(warmth = warmth, brightness = brightness))
     }

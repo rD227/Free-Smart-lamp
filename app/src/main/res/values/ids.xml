@@ -2,6 +2,7 @@
     <item name="page" type="id" />
     <item name="status" type="id" />
     <item name="send_progress" type="id" />
+    <item name="live_send_wave" type="id" />
     <item name="turn_on" type="id" />
     <item name="turn_off" type="id" />
     <item name="warmth" type="id" />
@@ -18,6 +19,8 @@
     <item name="timer_input" type="id" />
     <item name="system_colors" type="id" />
     <item name="color_wheel" type="id" />
+    <item name="white_ring" type="id" />
+    <item name="theme_whiteness_value" type="id" />
     <item name="pair" type="id" />
     <item name="mode" type="id" />
 </resources>

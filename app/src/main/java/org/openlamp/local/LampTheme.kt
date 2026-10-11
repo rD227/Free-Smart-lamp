@@ -25,12 +25,23 @@ data class ThemeSettings(
     val useSystemM3: Boolean = true,
     val colorPack: ColorPack = ColorPack.BLUE,
     val customColor: Int = ColorPack.BLUE.seed,
+    val customHue: Float = ThemeColor.fromArgb(customColor).hue,
+    val customBaseValue: Float = 1f,
 ) {
     val seed: Int get() = if (colorPack == ColorPack.CUSTOM) customColor else colorPack.seed
+    val wheelColor: ThemeColor get() = if (colorPack == ColorPack.CUSTOM) {
+        ThemeColor.fromArgb(customColor, customHue, customBaseValue)
+    } else ThemeColor.fromArgb(seed)
+
+    fun withCustomColor(selection: ThemeColor) = copy(
+        useSystemM3 = false, colorPack = ColorPack.CUSTOM, customColor = selection.argb,
+        customHue = selection.hue, customBaseValue = selection.baseValue,
+    )
 
     fun save(prefs: SharedPreferences) {
         prefs.edit().putBoolean("use_system_m3", useSystemM3).putString("color_pack", colorPack.name)
-            .putInt("custom_color", customColor).apply()
+            .putInt("custom_color", customColor).putFloat("custom_hue", customHue)
+            .putFloat("custom_base_value", customBaseValue).apply()
     }
 
     fun applyTo(activity: Activity) {
@@ -46,6 +57,8 @@ data class ThemeSettings(
             useSystemM3 = prefs.getBoolean("use_system_m3", true),
             colorPack = ColorPack.entries.firstOrNull { it.name == prefs.getString("color_pack", null) } ?: ColorPack.BLUE,
             customColor = prefs.getInt("custom_color", ColorPack.BLUE.seed),
+            customHue = prefs.getFloat("custom_hue", ThemeColor.fromArgb(prefs.getInt("custom_color", ColorPack.BLUE.seed)).hue),
+            customBaseValue = prefs.getFloat("custom_base_value", 1f),
         )
     }
 }
