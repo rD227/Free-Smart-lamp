@@ -1,6 +1,28 @@
-/build/
-/.keys/
+# Gradle and Android build outputs
+**/build/
+/app/debug/
+/app/release/
+*.apk
+*.aab
+*.ap_
+
+# Local build state and SDK configuration
 /.gradle/
 /.kotlin/
 /local.properties
-/app/build/
+.externalNativeBuild/
+.cxx/
+
+# Android Studio settings, caches and captures
+/.idea/
+*.iml
+/captures/
+
+# Local signing keys
+/.keys/
+*.jks
+*.keystore
+
+# OS files
+.DS_Store
+Thumbs.db
