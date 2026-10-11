@@ -61,7 +61,7 @@ import kotlin.math.sin
 import com.google.android.material.R as MaterialR
 
 // Wave motion is independent of the actual Bluetooth transmission duration.
-private const val SEND_WAVE_SPEED_DP_PER_SECOND = 15
+private const val SEND_WAVE_SPEED_DP_PER_SECOND = 24
 private const val SEND_WAVELENGTH_DP = 28
 private const val SEND_WAVE_AMPLITUDE_DP = 3
 // The wave follows the controller's send duration and fades when sending actually finishes.
