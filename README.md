@@ -1,56 +1,41 @@
 # 本地开灯
 
-Android 手机直接通过 BLE 广播控制 LampSmart Pro 系列灯的实验性客户端 
- 支持配对、开灯、关灯，采用 GNU v3 许可证 
- 针对店家提供的 `com.jingyuan.lamp`，协议实现参考 [NicoIIT/ha-ble-adv](https://github.com/NicoIIT/ha-ble-adv) 
+Android 手机直接通过 BLE 广播控制 LampSmart Pro 系列灯的实验性客户端
+ 支持配对、开灯、关灯，采用 GNU v3 许可证
+ 针对店家提供的 `com.jingyuan.lamp`，协议实现参考 [NicoIIT/ha-ble-adv](https://github.com/NicoIIT/ha-ble-adv)
  不同灯的固件可能使用不同协议变体，仍需到灯旁边验证
 
 ## 使用
 
-1. 打开手机上的「本地开灯」，开启蓝牙，允许「附近设备」权限 
- 
-2. 首次使用先选默认的「自动」兼容模式 
- 
-3. 用墙壁开关给灯断电、再上电，5 秒内点击「配对这盏灯」 
- 配对窗口可能因灯的型号不同而变化，店家的说明优先 
- 
-4. 观察灯是否闪烁，再点击「关灯」和「开灯」确认响应 
- 
-5. 自动模式无效时，分别选择模式 1、2、3；每次切换后重新给灯上电并配对 
- 
+1. 打开手机上的「本地开灯」，开启蓝牙，允许「附近设备」权限
 
-只需手机和灯，不需要 STM32、Linux 电脑、原厂 App 或 Android root 
- 正常控制时墙壁开关需要保持通电 
- 配对是登记本 App 的控制器编号，不需要在系统蓝牙列表中连接灯 
- 
+2. 首次使用选择默认的「智灯 Pro（推荐）」模式
 
-「已发送」表示 Android 已启动广播并完成发送，不代表收到灯的确认 
- App 不读取灯的状态 
- 广播过程中请保持 App 在前台 
- 
+3. 用墙壁开关给灯断电、再上电，5 秒内点击「配对这盏灯」
+ 配对窗口可能因灯的型号不同而变化，店家的说明优先
 
-## 隐私与本机数据
+4. 观察灯是否闪动两下，再点击「关灯」和「开灯」确认响应
 
-- Manifest 没有 INTERNET 权限；没有账号、服务器、广告或统计 SDK 
- 
-- 只申请蓝牙相关权限，不申请蓝牙扫描、定位、存储、摄像头或麦克风权限 
- 
-- 随机控制器编号、指令计数及兼容模式保存在本机 SharedPreferences，关闭系统备份 
- 
-- 卸载或清除 App 数据会删除控制器编号，之后需要重新配对 
- 安装更新保留数据 
- 
-- 不包含原厂 APK 的代码或原生库 
- 协议来源及许可证见 [NOTICE.md](NOTICE.md) 和 [UPSTREAM-LICENSE](UPSTREAM-LICENSE) 
- 
+5. 无效时尝试「自动」或模式 1、2、3；每次切换后重新给灯上电并配对
+
+正常控制时墙壁开关需要保持通电
+ 配对是登记本 App 的控制器编号，不需要在系统蓝牙列表中连接灯
+
+「已发送」表示 Android 已启动广播并完成发送，不代表收到灯的确认
+ App 不读取灯的状态
+ 广播过程中请保持 App 在前台
+
+随机控制器编号、指令计数及兼容模式保存在 SharedPreferences。卸载或清除 App 数据后需要重新配对，安装更新保留数据。
+
+协议来源及许可证见 [NOTICE.md](NOTICE.md) 和 [UPSTREAM-LICENSE](UPSTREAM-LICENSE)。
 
 ## Nvim 与命令行构建
 
 不需要 Android Studio，也不需要系统安装 `gradle` 或 `kotlinc`。需要 JDK（本机使用 21）、Android SDK Platform 36、Build Tools 36.0.0，以及安装真机时使用的 ADB。
 
-项目固定使用 Gradle 9.3.0、Android Gradle Plugin 9.0.1；AGP 自带 Kotlin 支持。首次构建会下载缺失的编译器、插件及依赖，以后可复用 `~/.gradle/` 中的缓存。App 本身仍无联网权限。
+项目固定使用 Gradle 9.3.0、Android Gradle Plugin 9.0.1；AGP 自带 Kotlin 支持。首次构建会下载缺失的编译器、插件及依赖，以后可复用 `~/.gradle/` 中的缓存。
 
-本机的 `local.properties` 已配置 `sdk.dir=/opt/android-sdk`。其他电脑在项目根目录创建该文件，填写自己的 SDK 路径，或者设置 `ANDROID_HOME`。`local.properties` 不提交到 Git。
+在项目根目录创建 `local.properties`，填写本机 SDK 路径，或者设置 `ANDROID_HOME`。`local.properties` 不提交到 Git。
 
 ```sh
 cd ~/androidProject/android-lamp-control
@@ -70,7 +55,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 在 Nvim 中打开项目根目录后，可用 `:!./gradlew :app:compileDebugKotlin` 或 `:!./gradlew assembleDebug`。LSP 用于补全和即时诊断，实际编译结果以 Gradle 为准。本项目不修改你的 Nvim 配置。
 
-保持 `.keys/debug.keystore`，覆盖安装就能保留已有的控制器编号。新检出且没有密钥时，构建会生成本地调试密钥；不同密钥的 APK 无法覆盖安装之前的版本。包名、SharedPreferences 名称和字段与旧版一致，当前版本号为 0.2.1 / versionCode 3。
+保持 `.keys/debug.keystore`，覆盖安装就能保留已有的控制器编号。新检出且没有密钥时，构建会生成本地调试密钥；不同密钥的 APK 通常无法覆盖安装之前的版本。包名、SharedPreferences 名称和原有字段与旧版一致，当前版本号为 0.3.0 / versionCode 4。0.3.0 首次启动会选择新增的「智灯 Pro」模式，保留控制器编号；之后保留用户选择的模式。
 
 ### Release 版本
 
@@ -107,7 +92,7 @@ Windows 首次构建会下载所需的 Gradle 和依赖；Linux 的 `.gradle/`�
 ```text
 app/src/main/java/org/openlamp/local/
     MainActivity.kt                 蓝牙发送和交互逻辑
-    LampCodec.kt                    三种协议编码
+    LampCodec.kt                    四种协议编码
 app/src/main/res/layout/activity_main.xml  界面布局
 app/src/main/res/values/strings.xml        界面文字
 app/src/main/res/values/styles.xml         配色和样式
@@ -121,26 +106,26 @@ settings.gradle.kts                      模块与依赖仓库
 
 ## 实现与验证
 
-`MainActivity.kt` 使用 Android 原生 BLE 广播 API，将协议字节作为 16 位服务 UUID 列表发送
- 随机种子生成时排除重复 UUID，避免 Android 去重改变报文 
- 默认自动模式依次发送三个协议变体，各广播 650 毫秒 
- 
+`MainActivity.kt` 使用 Android 原生 BLE 广播 API，将协议字节作为 16 位服务 UUID 列表发送。采用与绿色智灯 Pro 一致的可连接广播，包含 Flags 字段；26 字节协议报文加上 UUID 列表头和 Flags，正好占用传统广播的 31 字节。
+ 随机种子生成时排除重复 UUID，避免 Android 去重改变报文
+ 每个报文广播 500 毫秒，配对发送 8 次，开关指令发送 4 次。「自动」模式按智灯 Pro、模式 2、模式 3、模式 1 的顺序轮换。
 
 | 界面模式 | 编码 |
 | --- | --- |
 | 模式 1 | LampSmart V1 |
 | 模式 2 | LampSmart signed V3 |
 | 模式 3 | LampSmart unsigned V2 |
+| 智灯 Pro（推荐） | LampSmart signed V3/s2，报文前缀 `30 82 00` |
 
 协议转换代码位于 `app/src/main/java/org/openlamp/local/LampCodec.kt`，开灯命令为 `0x10`，关灯为 `0x11`，配对为 `0x28`
- 
 
-旧版 0.1.0 已在 Android 16 真机上安装运行并完成开灯广播。此次 Kotlin 迁移版本在电脑端检查构建、签名和协议编码；手机当前没有连接，新版仍需安装后确认界面和广播。灯具不在用户身边，实际配对和开关灯尚待验证。
+0.3.0 修复了绿色「智灯 Pro」`com.jingyuan.lamp` 1.4.1 的兼容问题：此前三个模式均未覆盖它使用的 V3/s2 参数。新增模式以 `0x82` 参与签名，并选择对应的加密表，同时调整广播类型和重复发送方式。
 
-Kotlin 版已通过 APK 构建、签名与对齐检查、协议测试和 Android Lint 检查。编码测试将三种模式、三种命令、不同编号、计数和种子的 324 个组合与上游生成的报文逐字节比较，全部一致，另检查非法输入是否被拒绝。依赖下载完成后，本机已验证可用 `--offline` 构建和测试。
- 
+2026-10-11 已在连接的 PLK110 手机上安装 0.3.0，保留原控制器编号。用户实灯验证确认：配对闪动两下，关灯和开灯均正常。该结果对应上述手机和灯具组合，其他型号仍需实测。
 
-普通测试直接执行 `./gradlew testDebugUnitTest`，测试使用已保存的 324 组上游报文，不依赖原厂 App 或上游仓库。若要重新生成对照报文，则需要 Python 3、OpenSSL 和指定版本的上游检出：
+0.3.0 已通过 Release APK 构建、协议测试和 Android Lint 检查。编码测试将原有三种模式的 324 组报文与上游逐字节比较，并将新增模式的 276 组报文与手机上原厂编码库的实际输出比较，全部一致；覆盖配对、开关、不同编号和计数回绕，另检查非法输入是否被拒绝。原厂对照数据的生成方式见 [tests/README.md](tests/README.md)。
+
+普通测试直接执行 `./gradlew testDebugUnitTest`，使用已保存的 600 组对照报文。若要重新生成上游对照报文，则需要 Python 3、OpenSSL 和指定版本的上游检出：
 
 ```sh
 git clone https://github.com/NicoIIT/ha-ble-adv /tmp/openlamp-reference

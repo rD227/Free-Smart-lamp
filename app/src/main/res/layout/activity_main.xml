@@ -60,7 +60,7 @@
             android:layout_height="52dp"
             android:contentDescription="@string/compatibility" />
         <TextView style="@style/BodyText"
-            android:text="@string/privacy_note"
+            android:text="@string/control_note"
             android:textSize="14sp"
             android:paddingTop="24dp" />
     </LinearLayout>

@@ -17,14 +17,14 @@ object LampCodec {
         0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16,
     )
 
-    /** AD type 0x03 payload. Modes: 1 = V1, 2 = signed V3, 3 = unsigned V2. */
+    /** AD type 0x03 payload. Modes: 1 = V1, 2 = signed V3, 3 = unsigned V2, 4 = signed V3/s2. */
     fun encode(mode: Int, command: Int, id: Int, sequence: Int, seed: Int): ByteArray {
-        require(mode in 1..3 && command in setOf(0x10, 0x11, 0x28)) { "Unsupported mode or command" }
+        require(mode in 1..4 && command in setOf(0x10, 0x11, 0x28)) { "Unsupported mode or command" }
         require(id and 0xFF000F00.toInt() == 0 && sequence in 0..255 && seed in 1..0xFFF5) {
             "Invalid controller ID, sequence or seed"
         }
         return if (mode == 1) encodeV1(command, id, sequence, seed)
-        else encodeV2(command, id, sequence, seed, signed = mode == 2)
+        else encodeV2(command, id, sequence, seed, signed = mode != 3, salt = if (mode == 4) 2 else 0)
     }
 
     private fun encodeV1(command: Int, id: Int, sequence: Int, seed: Int): ByteArray {
@@ -56,10 +56,10 @@ object LampCodec {
 
     // This single-block AES operation is required by the lamp's existing wire protocol.
     @Suppress("GetInstance")
-    private fun encodeV2(command: Int, id: Int, sequence: Int, seed: Int, signed: Boolean): ByteArray {
+    private fun encodeV2(command: Int, id: Int, sequence: Int, seed: Int, signed: Boolean, salt: Int): ByteArray {
         val plain = ByteArray(22)
         plain[0] = if (signed) 0x30 else 0x10
-        plain[1] = 0x80.toByte()
+        plain[1] = (0x80 or salt).toByte()
         plain[3] = sequence.toByte()
         plain[5] = 1 // LampSmart device type 0x0100, little endian.
         for (i in 0..3) plain[6 + i] = (id shr (8 * i)).toByte()
@@ -79,7 +79,7 @@ object LampCodec {
         val encrypted = plain.copyOf(24)
         val seed8 = seed and 255
         for (i in 2 until 20) {
-            encrypted[i] = (plain[i].toInt() xor seed8 xor box[(seed8 + i - 2 + 9) and 0x1F]).toByte()
+            encrypted[i] = (plain[i].toInt() xor seed8 xor box[(salt shl 5) + ((seed8 + i - 2 + 9) and 0x1F)]).toByte()
         }
         putLE(encrypted, 22, crc(encrypted, 22, seed xor 0xFFFF))
         return byteArrayOf(0xF0.toByte(), 0x08) + encrypted

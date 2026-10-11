@@ -25,7 +25,7 @@ import android.widget.TextView
 import java.security.SecureRandom
 import java.util.Locale
 
-/** Foreground-only local BLE transmitter. No network permission, accounts or analytics. */
+/** Sends lamp commands through BLE advertising while the activity is in the foreground. */
 class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private val random = SecureRandom()
@@ -61,7 +61,12 @@ class MainActivity : Activity() {
         mode.adapter = ArrayAdapter.createFromResource(
             this, R.array.compatibility_modes, android.R.layout.simple_spinner_item,
         ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-        mode.setSelection(prefs.getInt("mode", 0).coerceIn(0, 3))
+        // Earlier versions did not include the variant sent by the green Zhi Deng Pro app.
+        // Select it once on upgrade; preserve the controller ID and subsequent mode choices.
+        if (prefs.getInt("protocol_revision", 0) < 1) {
+            prefs.edit().putInt("mode", 4).putInt("protocol_revision", 1).apply()
+        }
+        mode.setSelection(prefs.getInt("mode", 4).coerceIn(0, 4))
         applySystemBarInsets()
         requestBluetoothPermissions()
     }
@@ -122,8 +127,8 @@ class MainActivity : Activity() {
         prefs.edit().putInt("sequence", sequence).putInt("mode", chosen).apply()
         val packets = mutableListOf<AdvertiseData>()
         try {
-            for (variant in 1..3) {
-                if (chosen != 0 && chosen != variant) continue
+            val variants = if (chosen == 0) listOf(4, 2, 3, 1) else listOf(chosen)
+            for (variant in variants) {
                 var data: AdvertiseData? = null
                 // Android deduplicates UUIDs. Retry a seed if two encoded words collide.
                 for (attempt in 0 until 64) {
@@ -142,7 +147,11 @@ class MainActivity : Activity() {
         setControls(false)
         val token = ++generation
         status.text = getString(R.string.sending, action)
-        startPacket(packets, 0, action, command == 0x28, token)
+        val pairing = command == 0x28
+        // Repeat the same command, sequence and seed as the vendor app does.
+        // Give pairing four seconds of broadcasts; shorter power commands still retry.
+        val repeats = if (pairing) 8 / packets.size else maxOf(1, 4 / packets.size)
+        startPacket(List(repeats) { packets }.flatten(), 0, action, pairing, token)
     }
 
     private fun toAdvertisingData(payload: ByteArray): AdvertiseData? {
@@ -168,7 +177,8 @@ class MainActivity : Activity() {
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(false)
+            // Match the vendor's legacy ADV_IND packets, including the Flags AD field.
+            .setConnectable(true)
             .setTimeout(2000)
             .build()
         val callback = object : AdvertiseCallback() {
@@ -178,8 +188,8 @@ class MainActivity : Activity() {
                 handler.postDelayed({
                     if (token != generation) return@postDelayed
                     stopAdvertisement()
-                    handler.postDelayed({ startPacket(packets, index + 1, action, pairing, token) }, 120)
-                }, 650)
+                    handler.postDelayed({ startPacket(packets, index + 1, action, pairing, token) }, 20)
+                }, 500)
             }
 
             override fun onStartFailure(errorCode: Int) {

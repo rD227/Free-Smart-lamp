@@ -1,21 +1,22 @@
 <resources>
     <string name="app_name">本地开灯</string>
-    <string name="subtitle">手机直连蓝牙 · 开源 · 离线</string>
+    <string name="subtitle">蓝牙灯具控制</string>
     <string name="ready">准备就绪。首次使用请先配对灯。</string>
     <string name="turn_on">开灯</string>
     <string name="turn_off">关灯</string>
     <string name="pair_action">配对</string>
     <string name="pair_title">首次配对</string>
-    <string name="pair_help">用墙壁开关给灯断电、再上电，5 秒内点击下面的按钮。灯闪烁后，尝试开灯或关灯。</string>
+    <string name="pair_help">用墙壁开关给灯断电、再上电，5 秒内点击下面的按钮。灯闪动两下后，尝试关灯、开灯。</string>
     <string name="pair_button">配对这盏灯</string>
     <string name="compatibility">兼容模式</string>
     <string-array name="compatibility_modes">
-        <item>自动（依次尝试三种模式）</item>
-        <item>模式 1</item>
-        <item>模式 2</item>
-        <item>模式 3</item>
+        <item>自动（优先智灯 Pro）</item>
+        <item>模式 1（旧版 V1）</item>
+        <item>模式 2（V3）</item>
+        <item>模式 3（V2）</item>
+        <item>智灯 Pro（推荐）</item>
     </string-array>
-    <string name="privacy_note">命令通过本机蓝牙发送，不经过服务器。配对信息只保存在本机；卸载后需重新配对。手机发送成功并不代表灯已执行，请观察灯的反应。</string>
+    <string name="control_note">卸载或清除应用数据后需重新配对。手机发送成功并不代表灯已执行，请观察灯的反应。</string>
     <string name="permission_required">请允许附近设备权限，然后再点击按钮。</string>
     <string name="bluetooth_disabled">请先在手机设置中打开蓝牙。</string>
     <string name="advertising_unavailable">这台手机暂时无法发送蓝牙广播。</string>
