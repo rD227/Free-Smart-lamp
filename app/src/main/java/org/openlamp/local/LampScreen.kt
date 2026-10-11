@@ -1,5 +1,7 @@
 package org.openlamp.local
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
@@ -64,6 +66,9 @@ import com.google.android.material.R as MaterialR
 private const val SEND_WAVE_SPEED_DP_PER_SECOND = 15
 private const val SEND_WAVELENGTH_DP = 28
 private const val SEND_WAVE_AMPLITUDE_DP = 3
+// A short visual acknowledgement; Bluetooth may keep retrying after the wave disappears.
+private const val SEND_FEEDBACK_DURATION_MILLIS = 700L
+private const val SEND_FEEDBACK_FADE_MILLIS = 80L
 private const val LIGHTING_HALO_MAX_ALPHA = 0.5f
 
 data class LampScreenCallbacks(
@@ -147,14 +152,6 @@ class LampScreen(
         val available = (scroll.width - scroll.paddingLeft - scroll.paddingRight).takeIf { it > 0 }
             ?: context.resources.displayMetrics.widthPixels
         val width = min(available, dp(560))
-        scroll.removeAllViews()
-        scroll.addView(page, FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL))
-        scroll.addOnLayoutChangeListener(pageLayoutListener)
-        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
         buildHeader()
         buildPower()
         buildLighting()
@@ -165,6 +162,16 @@ class LampScreen(
             setPadding(dp(8), dp(8), dp(8), 0)
         })
         update(initialState)
+        // Attach the finished content with its current labels and selections already applied.
+        // A theme change must never expose temporary text such as "custom" before "1 minute".
+        scroll.removeAllViews()
+        scroll.addView(page, FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL))
+        scroll.addOnLayoutChangeListener(pageLayoutListener)
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
         startClock()
     }
 
@@ -351,19 +358,24 @@ class LampScreen(
             timerChips[minutes] = chip
             choices.addView(chip)
         }
-        customTimer = chip(context.getString(R.string.custom_timer)).apply {
+        customTimer = chip(customTimerLabel(state.timerMinutes)).apply {
             id = R.id.custom_timer
+            isChecked = state.timerMinutes !in timerChips
             setOnClickListener { showCustomTimer() }
         }
         choices.addView(customTimer)
         body.addView(choices, fullWidth().apply { topMargin = dp(14) })
         val buttons = row()
-        timerButton = button("", R.id.set_timer) { callbacks.onTimer(state.timerMinutes) }
+        timerButton = button(context.getString(R.string.set_timer_minutes, state.timerMinutes), R.id.set_timer) { callbacks.onTimer(state.timerMinutes) }
         buttons.addView(timerButton, equalWidth())
         buttons.addView(button(context.getString(R.string.cancel_timer), R.id.cancel_timer, tonal = true) { callbacks.onTimer(0) }, equalWidth().apply { marginStart = dp(12) })
         body.addView(buttons, fullWidth().apply { topMargin = dp(14) })
         body.addView(text(context.getString(R.string.timer_help), 12, colors.secondaryText), fullWidth().apply { topMargin = dp(12) })
     }
+
+    private fun customTimerLabel(minutes: Int) = if (minutes in timerChips) {
+        context.getString(R.string.custom_timer)
+    } else context.getString(R.string.minutes_short, minutes)
 
     private fun buildAppearance() {
         val body = card()
@@ -486,7 +498,8 @@ class LampScreen(
         updateLightingLabels()
         timerChips.forEach { (minutes, chip) -> chip.isChecked = minutes == next.timerMinutes }
         customTimer.isChecked = next.timerMinutes !in timerChips
-        customTimer.text = if (customTimer.isChecked) context.getString(R.string.minutes_short, next.timerMinutes) else context.getString(R.string.custom_timer)
+        val timerLabel = customTimerLabel(next.timerMinutes)
+        if (customTimer.text.toString() != timerLabel) customTimer.text = timerLabel
         timerButton.text = context.getString(R.string.set_timer_minutes, next.timerMinutes)
         modeButton.text = context.resources.getStringArray(R.array.compatibility_modes)[next.mode]
         updateTimerSummary()
@@ -497,27 +510,46 @@ class LampScreen(
         if (showContinuous) {
             showFullWave()
         } else if (next.busy && (!wasBusy || next.transmissionId != previousTransmissionId || wasContinuous)) {
-            handler.removeCallbacksAndMessages(null)
-            progress.visibility = View.VISIBLE
-            progress.setProgressCompat(0, false)
-            progressAnimator?.cancel()
-            progressAnimator = ValueAnimator.ofInt(0, 970).apply {
-                duration = next.sendDurationMillis
-                interpolator = android.view.animation.LinearInterpolator()
-                addUpdateListener { progress.setProgressCompat(it.animatedValue as Int, false) }
-                start()
-            }
-            if (clockRunning) handler.post(clock)
+            showSendFeedback(next.sendDurationMillis)
         } else if (!next.busy && wasBusy && !wasContinuous) {
             progressAnimator?.cancel()
-            progress.setProgressCompat(1000, true)
-            handler.postDelayed({ if (!state.busy) progress.visibility = View.INVISIBLE }, 200)
+            progress.setProgressCompat(1000, false)
+            fadeSendFeedback()
         }
+    }
+
+    private fun showSendFeedback(sendDurationMillis: Long) {
+        progressAnimator?.cancel()
+        progress.animate().cancel()
+        progress.alpha = 1f
+        progress.visibility = View.VISIBLE
+        progress.setProgressCompat(0, false)
+        progressAnimator = ValueAnimator.ofInt(0, 1000).apply {
+            duration = minOf(sendDurationMillis.coerceAtLeast(1L), SEND_FEEDBACK_DURATION_MILLIS)
+            interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener { progress.setProgressCompat(it.animatedValue as Int, false) }
+            addListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(animation: Animator) { cancelled = true }
+                override fun onAnimationEnd(animation: Animator) {
+                    if (!cancelled) fadeSendFeedback()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun fadeSendFeedback() {
+        if (progress.visibility != View.VISIBLE) return
+        progress.animate().cancel()
+        progress.animate().alpha(0f).setDuration(SEND_FEEDBACK_FADE_MILLIS)
+            .withEndAction { progress.visibility = View.INVISIBLE }.start()
     }
 
     private fun showFullWave() {
         progressAnimator?.cancel()
         progressAnimator = null
+        progress.animate().cancel()
         progress.visibility = View.INVISIBLE
         continuousWave.visibility = View.VISIBLE
         continuousWave.setRunning(true)
@@ -604,6 +636,7 @@ class LampScreen(
         stopClock()
         handler.removeCallbacksAndMessages(null)
         progressAnimator?.cancel()
+        progress.animate().cancel()
         continuousWave.setRunning(false)
         themeHint?.cancel()
         scroll.removeOnLayoutChangeListener(pageLayoutListener)
