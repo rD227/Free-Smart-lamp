@@ -1,11 +1,16 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "org.openlamp.local"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
+
+    buildFeatures {
+        compose = true
+    }
 
     defaultConfig {
         applicationId = "org.openlamp.local"
@@ -85,5 +90,11 @@ tasks.matching { it.name in setOf("validateSigningDebug", "validateSigningReleas
 
 dependencies {
     implementation("com.google.android.material:material:1.13.0")
+    // The compiler needs the runtime; release R8 removes unused Compose code.
+    implementation("androidx.compose.runtime:runtime:1.9.5")
+    debugImplementation("androidx.compose.ui:ui:1.9.5")
+    debugImplementation("androidx.compose.foundation:foundation-layout:1.9.5")
+    debugImplementation("androidx.compose.ui:ui-tooling-preview:1.9.5")
+    debugImplementation("androidx.compose.ui:ui-tooling:1.9.5")
     testImplementation("junit:junit:4.13.2")
 }

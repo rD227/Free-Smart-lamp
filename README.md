@@ -105,6 +105,12 @@ sdk.dir=C:/Users/你的用户名/AppData/Local/Android/Sdk
 
 Windows 首次构建会下载所需的 Gradle 和依赖；Linux 的 `.gradle/`、`build/` 及 `app/build/` 不必复制。
 
+## 界面 Preview
+
+在 Android Studio 选择 `debug` 构建变体，同步 Gradle 后打开 `app/src/debug/java/org/openlamp/local/LampScreenPreview.kt`，切到 **Design** 或 **Split**，即可看到 `@Preview` 的浅色、深色预览。
+
+预览用 `AndroidView` 复用 `LampScreen.kt` 中的「灯光控制」和「色温 / 亮度」两张 M3 卡片。默认准备就绪、色温 50%、亮度 100%、按钮应用，滑杆未拖动，波浪隐藏。修改 `@Preview` 的 `widthDp`、`heightDp` 可调整画布，修改 `initialState` 可调整预览值。预览使用固定数据，不创建蓝牙控制器、不读写 App 配置、不启动定时刷新；预览函数与 UI 工具依赖只在 debug 中。
+
 ## 项目结构
 
 ```text

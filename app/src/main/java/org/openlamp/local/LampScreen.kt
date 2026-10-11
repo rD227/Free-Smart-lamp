@@ -88,6 +88,7 @@ class LampScreen(
     private val appearance: ThemeSettings,
     private val callbacks: LampScreenCallbacks,
     retainedScroll: NestedScrollView? = null,
+    private val controlsOnly: Boolean = false,
 ) {
     private val context = appearance.createContext(base)
     val colors = LampColors(context, appearance)
@@ -132,11 +133,7 @@ class LampScreen(
         setPadding(dp(20), dp(22), dp(20), dp(32))
     }
     private val pageLayoutListener = View.OnLayoutChangeListener { view, left, _, right, _, _, _, _, _ ->
-        val available = right - left - view.paddingLeft - view.paddingRight
-        val pageWidth = min(available, dp(560))
-        if (pageWidth > 0 && page.layoutParams.width != pageWidth) {
-            page.layoutParams = page.layoutParams.apply { this.width = pageWidth }
-        }
+        fitContentWidth(right - left - view.paddingLeft - view.paddingRight)
     }
     private val clock = object : Runnable {
         override fun run() {
@@ -150,15 +147,17 @@ class LampScreen(
         val available = (scroll.width - scroll.paddingLeft - scroll.paddingRight).takeIf { it > 0 }
             ?: context.resources.displayMetrics.widthPixels
         val width = min(available, dp(560))
-        buildHeader()
+        if (!controlsOnly) buildHeader()
         buildPower()
         buildLighting()
-        buildTimer()
-        buildAppearance()
-        buildPairing()
-        page.addView(text(context.getString(R.string.control_note), 12, colors.secondaryText).apply {
-            setPadding(dp(8), dp(8), dp(8), 0)
-        })
+        if (!controlsOnly) {
+            buildTimer()
+            buildAppearance()
+            buildPairing()
+            page.addView(text(context.getString(R.string.control_note), 12, colors.secondaryText).apply {
+                setPadding(dp(8), dp(8), dp(8), 0)
+            })
+        }
         update(initialState)
         // Attach the finished content with its current labels and selections already applied.
         // A theme change must never expose temporary text such as "custom" before "1 minute".
@@ -494,13 +493,15 @@ class LampScreen(
         if (warmth.value.roundToInt() != next.warmth) warmth.value = next.warmth.toFloat()
         if (brightness.value.roundToInt() != next.brightness) brightness.value = next.brightness.toFloat()
         updateLightingLabels()
-        timerChips.forEach { (minutes, chip) -> chip.isChecked = minutes == next.timerMinutes }
-        customTimer.isChecked = next.timerMinutes !in timerChips
-        val timerLabel = customTimerLabel(next.timerMinutes)
-        if (customTimer.text.toString() != timerLabel) customTimer.text = timerLabel
-        timerButton.text = context.getString(R.string.set_timer_minutes, next.timerMinutes)
-        modeButton.text = context.resources.getStringArray(R.array.compatibility_modes)[next.mode]
-        updateTimerSummary()
+        if (!controlsOnly) {
+            timerChips.forEach { (minutes, chip) -> chip.isChecked = minutes == next.timerMinutes }
+            customTimer.isChecked = next.timerMinutes !in timerChips
+            val timerLabel = customTimerLabel(next.timerMinutes)
+            if (customTimer.text.toString() != timerLabel) customTimer.text = timerLabel
+            timerButton.text = context.getString(R.string.set_timer_minutes, next.timerMinutes)
+            modeButton.text = context.resources.getStringArray(R.array.compatibility_modes)[next.mode]
+            updateTimerSummary()
+        }
         val showContinuous = next.lightingApplyMode == LightingApplyMode.WHILE_SLIDING &&
             (trackingSliders.isNotEmpty() || next.busy && next.sendingLighting)
         continuousWave.visibility = if (showContinuous) View.VISIBLE else View.INVISIBLE
@@ -611,7 +612,7 @@ class LampScreen(
         scroll.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         scroll.requestFocus()
         dispose()
-        return LampScreen(base, state, next, callbacks, scroll).also {
+        return LampScreen(base, state, next, callbacks, scroll, controlsOnly).also {
             scroll.doOnPreDraw {
                 scroll.descendantFocusability = descendantFocusability
                 if (focusedId != View.NO_ID && focusedId != scroll.id) {
@@ -623,7 +624,7 @@ class LampScreen(
     }
 
     fun restoreScroll(position: Int) { scroll.doOnPreDraw { scroll.scrollTo(0, position) } }
-    fun startClock() { if (!clockRunning) { clockRunning = true; handler.post(clock) } }
+    fun startClock() { if (!controlsOnly && !clockRunning) { clockRunning = true; handler.post(clock) } }
     fun stopClock() { clockRunning = false; handler.removeCallbacks(clock) }
     fun dispose() {
         stopClock()
@@ -633,6 +634,13 @@ class LampScreen(
         continuousWave.setRunning(false)
         themeHint?.cancel()
         scroll.removeOnLayoutChangeListener(pageLayoutListener)
+    }
+
+    internal fun fitContentWidth(available: Int) {
+        val pageWidth = min(available, dp(560))
+        if (pageWidth > 0 && page.layoutParams.width != pageWidth) {
+            page.layoutParams = page.layoutParams.apply { width = pageWidth }
+        }
     }
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).roundToInt()
