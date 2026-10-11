@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
             },
             onLightingApplyModeSelected = controller::selectLightingApplyMode,
             onTimerSelected = controller::selectTimer,
+            onTimerCancelled = { send(LampCommand.timer(0), getString(R.string.cancel_timer)) },
             onTimer = { minutes ->
                 send(LampCommand.timer(minutes), if (minutes == 0) getString(R.string.cancel_timer) else getString(R.string.timer_action, minutes))
             },

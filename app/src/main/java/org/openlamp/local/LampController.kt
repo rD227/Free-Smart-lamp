@@ -172,7 +172,12 @@ class LampController(private val context: Context, private val prefs: SharedPref
         }
         val repeats = if (preview) 1 else if (command.code == 0x28) 8 / packets.size else maxOf(1, 4 / packets.size)
         val transmission = List(repeats) { packets }.flatten()
-        val holdMillis = if (preview) PREVIEW_HOLD_MILLIS else RELIABLE_HOLD_MILLIS
+        val holdMillis = when {
+            preview -> PREVIEW_HOLD_MILLIS
+            command.code == 0x28 -> PAIRING_HOLD_MILLIS
+            // One duration budget for the whole operation, including all retries and gaps.
+            else -> CONTROL_SEND_DURATION_MILLIS / transmission.size - PACKET_GAP_MILLIS
+        }
         val token = ++generation
         update(state.copy(busy = true, sendingLighting = lighting, transmissionId = token, status = context.getString(R.string.sending, action), sendDurationMillis = transmission.size * (holdMillis + PACKET_GAP_MILLIS)))
         startPacket(transmission, 0, command, action, token, holdMillis)
@@ -208,6 +213,7 @@ class LampController(private val context: Context, private val prefs: SharedPref
                 prefs.edit().putLong("timer_deadline", deadline).apply()
                 completed = completed.copy(timerDeadline = deadline)
             }
+            Log.i("OpenLamp", "Advertising completed: $action")
             update(completed)
             return
         }
@@ -273,8 +279,10 @@ class LampController(private val context: Context, private val prefs: SharedPref
     }
 
     private companion object {
+        // Normal controls use four broadcasts totaling 500 ms; the UI reads this estimate.
+        const val CONTROL_SEND_DURATION_MILLIS = 500L
         const val PREVIEW_HOLD_MILLIS = 160L
-        const val RELIABLE_HOLD_MILLIS = 500L
+        const val PAIRING_HOLD_MILLIS = 500L
         const val PACKET_GAP_MILLIS = 20L
     }
 }

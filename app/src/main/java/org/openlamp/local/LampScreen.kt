@@ -1,7 +1,5 @@
 package org.openlamp.local
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
@@ -66,8 +64,7 @@ import com.google.android.material.R as MaterialR
 private const val SEND_WAVE_SPEED_DP_PER_SECOND = 15
 private const val SEND_WAVELENGTH_DP = 28
 private const val SEND_WAVE_AMPLITUDE_DP = 3
-// A short visual acknowledgement; Bluetooth may keep retrying after the wave disappears.
-private const val SEND_FEEDBACK_DURATION_MILLIS = 700L
+// The wave follows the controller's send duration and fades when sending actually finishes.
 private const val SEND_FEEDBACK_FADE_MILLIS = 80L
 private const val LIGHTING_HALO_MAX_ALPHA = 0.5f
 
@@ -78,6 +75,7 @@ data class LampScreenCallbacks(
     val onApplyLighting: (Int, Int) -> Unit,
     val onLightingApplyModeSelected: (LightingApplyMode) -> Unit,
     val onTimerSelected: (Int) -> Unit,
+    val onTimerCancelled: () -> Unit,
     val onTimer: (Int) -> Unit,
     val onModeSelected: (Int) -> Unit,
     val onThemeChanged: (ThemeSettings) -> Unit,
@@ -368,7 +366,7 @@ class LampScreen(
         val buttons = row()
         timerButton = button(context.getString(R.string.set_timer_minutes, state.timerMinutes), R.id.set_timer) { callbacks.onTimer(state.timerMinutes) }
         buttons.addView(timerButton, equalWidth())
-        buttons.addView(button(context.getString(R.string.cancel_timer), R.id.cancel_timer, tonal = true) { callbacks.onTimer(0) }, equalWidth().apply { marginStart = dp(12) })
+        buttons.addView(button(context.getString(R.string.cancel_timer), R.id.cancel_timer, tonal = true, onClick = callbacks.onTimerCancelled), equalWidth().apply { marginStart = dp(12) })
         body.addView(buttons, fullWidth().apply { topMargin = dp(14) })
         body.addView(text(context.getString(R.string.timer_help), 12, colors.secondaryText), fullWidth().apply { topMargin = dp(12) })
     }
@@ -524,17 +522,12 @@ class LampScreen(
         progress.alpha = 1f
         progress.visibility = View.VISIBLE
         progress.setProgressCompat(0, false)
-        progressAnimator = ValueAnimator.ofInt(0, 1000).apply {
-            duration = minOf(sendDurationMillis.coerceAtLeast(1L), SEND_FEEDBACK_DURATION_MILLIS)
+        progressAnimator = ValueAnimator.ofInt(0, 970).apply {
+            duration = sendDurationMillis.coerceAtLeast(1L)
             interpolator = android.view.animation.LinearInterpolator()
             addUpdateListener { progress.setProgressCompat(it.animatedValue as Int, false) }
-            addListener(object : AnimatorListenerAdapter() {
-                private var cancelled = false
-                override fun onAnimationCancel(animation: Animator) { cancelled = true }
-                override fun onAnimationEnd(animation: Animator) {
-                    if (!cancelled) fadeSendFeedback()
-                }
-            })
+            // Bluetooth startup adds some overhead. Complete the wave only when busy clears,
+            // keeping its disappearance in sync with the controls becoming available again.
             start()
         }
     }
