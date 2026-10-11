@@ -280,7 +280,6 @@ class LampScreen(
         applyLightingButton = button(context.getString(R.string.apply_lighting), R.id.apply_lighting, tonal = true) {
             callbacks.onApplyLighting(warmth.value.roundToInt(), brightness.value.roundToInt())
         }.also { lightingControls.add(it) }
-        body.addView(applyLightingButton, fullWidth(dp(52)).apply { topMargin = dp(12) })
         listOf(LightingApplyMode.WHILE_SLIDING, LightingApplyMode.ON_RELEASE, LightingApplyMode.MANUAL).forEach { mode ->
             val segment = MaterialButton(context, null, MaterialR.attr.materialButtonOutlinedStyle).apply {
                 id = lightingModeId(mode)
@@ -311,6 +310,7 @@ class LampScreen(
             }
         }
         body.addView(lightingModes, fullWidth().apply { topMargin = dp(16) })
+        body.addView(applyLightingButton, fullWidth(dp(52)).apply { topMargin = dp(12) })
         lightingModeHelp = text("", 12, colors.secondaryText)
         body.addView(lightingModeHelp, fullWidth().apply { topMargin = dp(10) })
     }
