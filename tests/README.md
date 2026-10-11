@@ -27,3 +27,7 @@ adb shell 'CLASSPATH=/data/local/tmp/openlamp-protocol/runner.dex app_process /s
 ```
 
 标准输出为 276 行对照数据。使用新的独立进程，确保原生库计数从初始值开始。仅在确认 APK 版本、哈希和调用参数一致后更新测试文件。
+
+`jingyuan-controls-v141-vectors.txt` 另保存了同一编码库输出的 76 组色温和定时关灯报文。色温覆盖冷、暖通道的 0、127、255 组合；定时覆盖取消、1 分钟、常用时长、255/256 分钟边界及 65535 分钟上限，均覆盖四个控制器编号。
+
+生成这组数据时，在上述 `VendorVectors` 命令的末尾添加 `controls`。每行格式为 `mode command controllerId sequence seed param arg0 arg1 arg2 payloadHex`。诊断工具只调用编码函数，不操作灯具。

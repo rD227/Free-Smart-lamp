@@ -37,6 +37,22 @@ class LampCodecTest {
     }
 
     @Test
+    fun temperatureAndTimerMatchGreenVendorApp() {
+        val stream = checkNotNull(javaClass.getResourceAsStream("/jingyuan-controls-v141-vectors.txt"))
+        val lines = stream.bufferedReader().use { it.readLines() }
+        assertEquals(76, lines.size)
+        lines.forEachIndexed { index, line ->
+            val fields = line.split(' ')
+            val expected = fields[9].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            val command = LampCommand(fields[1].toInt(), fields[5].toInt(), fields[6].toInt(), fields[7].toInt(), fields[8].toInt())
+            assertArrayEquals(
+                "Vendor controls vector $index: $line", expected,
+                LampCodec.encode(fields[0].toInt(), command, fields[2].toInt(), fields[3].toInt(), fields[4].toInt()),
+            )
+        }
+    }
+
+    @Test
     fun invalidInputsAreRejected() {
         listOf(
             intArrayOf(0, 0x10, 1, 1, 1), intArrayOf(5, 0x10, 1, 1, 1),

@@ -19,7 +19,11 @@ object LampCodec {
 
     /** AD type 0x03 payload. Modes: 1 = V1, 2 = signed V3, 3 = unsigned V2, 4 = signed V3/s2. */
     fun encode(mode: Int, command: Int, id: Int, sequence: Int, seed: Int): ByteArray {
-        require(mode in 1..4 && command in setOf(0x10, 0x11, 0x28)) { "Unsupported mode or command" }
+        return encode(mode, LampCommand(command), id, sequence, seed)
+    }
+
+    fun encode(mode: Int, command: LampCommand, id: Int, sequence: Int, seed: Int): ByteArray {
+        require(mode in 1..4) { "Unsupported mode" }
         require(id and 0xFF000F00.toInt() == 0 && sequence in 0..255 && seed in 1..0xFFF5) {
             "Invalid controller ID, sequence or seed"
         }
@@ -27,18 +31,23 @@ object LampCodec {
         else encodeV2(command, id, sequence, seed, signed = mode != 3, salt = if (mode == 4) 2 else 0)
     }
 
-    private fun encodeV1(command: Int, id: Int, sequence: Int, seed: Int): ByteArray {
-        val pairing = command == 0x28
+    private fun encodeV1(command: LampCommand, id: Int, sequence: Int, seed: Int): ByteArray {
+        val pairing = command.code == 0x28
         val plain = ByteArray(14)
-        plain[0] = command.toByte()
+        plain[0] = command.code.toByte()
         plain[1] = id.toByte()
         plain[2] = ((id shr 8) and 0xF0).toByte() // Group index is zero.
         if (pairing) {
             plain[3] = id.toByte()
             plain[4] = ((id shr 8) and 0xF0).toByte()
             plain[5] = 0x81.toByte()
+        } else {
+            // V1 puts cold/warm channels in arg0/arg1; V2/V3 use arg1/arg2.
+            plain[3] = (if (command.code == 0x21) command.arg1 else command.arg0).toByte()
+            plain[4] = (if (command.code == 0x21) command.arg2 else command.arg1).toByte()
         }
         plain[6] = sequence.toByte()
+        plain[7] = command.param.toByte()
         plain[8] = (seed xor (id shr 16)).toByte()
         plain[9] = seed.toByte()
         putBE(plain, 10, seed)
@@ -56,14 +65,18 @@ object LampCodec {
 
     // This single-block AES operation is required by the lamp's existing wire protocol.
     @Suppress("GetInstance")
-    private fun encodeV2(command: Int, id: Int, sequence: Int, seed: Int, signed: Boolean, salt: Int): ByteArray {
+    private fun encodeV2(command: LampCommand, id: Int, sequence: Int, seed: Int, signed: Boolean, salt: Int): ByteArray {
         val plain = ByteArray(22)
         plain[0] = if (signed) 0x30 else 0x10
         plain[1] = (0x80 or salt).toByte()
         plain[3] = sequence.toByte()
         plain[5] = 1 // LampSmart device type 0x0100, little endian.
         for (i in 0..3) plain[6 + i] = (id shr (8 * i)).toByte()
-        plain[11] = command.toByte()
+        plain[11] = command.code.toByte()
+        plain[13] = command.param.toByte()
+        plain[14] = command.arg0.toByte()
+        plain[15] = command.arg1.toByte()
+        plain[16] = command.arg2.toByte()
         putLE(plain, 20, seed)
         if (signed) {
             val key = byteArrayOf(
