@@ -1,0 +1,11 @@
+<resources>
+    <color name="lamp_primary">#A8C8FF</color>
+    <color name="lamp_on_primary">#003061</color>
+    <color name="lamp_primary_container">#004788</color>
+    <color name="lamp_on_primary_container">#D5E3FF</color>
+    <color name="lamp_surface">#111318</color>
+    <color name="lamp_on_surface">#E2E2E9</color>
+    <color name="lamp_on_surface_variant">#C4C6D0</color>
+    <color name="lamp_surface_low">#191C20</color>
+    <color name="lamp_surface_high">#282A2F</color>
+</resources>

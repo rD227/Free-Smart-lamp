@@ -1,30 +1,20 @@
 <resources>
-    <color name="page">#F6F7F9</color>
-    <color name="ink">#19202D</color>
-    <color name="secondary">#5B6573</color>
-    <color name="accent">#245BCC</color>
-    <style name="BaseAppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">@color/accent</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#2C3646</item>
-        <item name="android:windowBackground">@color/page</item>
-    </style>
-    <style name="AppTheme" parent="BaseAppTheme" />
-    <style name="ControlButton" parent="android:style/Widget.Material.Button">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">64dp</item>
-        <item name="android:layout_marginTop">16dp</item>
-        <item name="android:textSize">20sp</item>
-        <item name="android:textColor">#FFFFFF</item>
-        <item name="android:textAllCaps">false</item>
-        <item name="android:background">@drawable/control_button</item>
-    </style>
-    <style name="BodyText">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:textSize">16sp</item>
-        <item name="android:textColor">@color/secondary</item>
-        <item name="android:lineSpacingExtra">3dp</item>
+        <item name="android:windowBackground">@color/lamp_surface</item>
+        <item name="android:colorBackground">@color/lamp_surface</item>
+        <item name="colorPrimary">@color/lamp_primary</item>
+        <item name="colorOnPrimary">@color/lamp_on_primary</item>
+        <item name="colorPrimaryContainer">@color/lamp_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/lamp_on_primary_container</item>
+        <item name="colorSurface">@color/lamp_surface</item>
+        <item name="colorOnSurface">@color/lamp_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/lamp_on_surface_variant</item>
+        <item name="colorSurfaceContainerLow">@color/lamp_surface_low</item>
+        <item name="colorSurfaceContainerHigh">@color/lamp_surface_high</item>
+        <item name="chipStyle">@style/Widget.Material3.Chip.Filter</item>
+        <item name="materialButtonStyle">@style/Widget.Material3.Button</item>
+        <item name="textInputStyle">@style/Widget.Material3.TextInputLayout.OutlinedBox</item>
+        <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>

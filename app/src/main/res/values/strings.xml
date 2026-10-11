@@ -1,12 +1,13 @@
 <resources>
     <string name="app_name">本地开灯</string>
-    <string name="subtitle">蓝牙灯具控制</string>
-    <string name="ready">准备就绪。首次使用请先配对灯。</string>
+    <string name="subtitle">调节灯光，让每一刻更舒适</string>
+    <string name="ready">准备就绪</string>
+    <string name="power_title">灯光控制</string>
     <string name="turn_on">开灯</string>
     <string name="turn_off">关灯</string>
     <string name="pair_action">配对</string>
-    <string name="pair_title">首次配对</string>
-    <string name="pair_help">用墙壁开关给灯断电、再上电，5 秒内点击下面的按钮。灯闪动两下后，尝试关灯、开灯。</string>
+    <string name="pair_title">连接与配对</string>
+    <string name="pair_help">首次使用时，给灯断电再上电，5 秒内点击配对。灯闪动两下后，即可尝试开关。</string>
     <string name="pair_button">配对这盏灯</string>
     <string name="compatibility">兼容模式</string>
     <string-array name="compatibility_modes">
@@ -16,15 +17,45 @@
         <item>模式 3（V2）</item>
         <item>智灯 Pro（推荐）</item>
     </string-array>
-    <string name="control_note">卸载或清除应用数据后需重新配对。手机发送成功并不代表灯已执行，请观察灯的反应。</string>
+    <string name="control_note">手机发送成功后，请观察灯的实际反应。卸载或清除数据后需重新配对。</string>
     <string name="permission_required">请允许附近设备权限，然后再点击按钮。</string>
     <string name="bluetooth_disabled">请先在手机设置中打开蓝牙。</string>
     <string name="advertising_unavailable">这台手机暂时无法发送蓝牙广播。</string>
     <string name="encoding_failed">编码失败：%1$s</string>
     <string name="sending">正在发送%1$s指令…</string>
-    <string name="sent">已发送%1$s指令。\n请确认灯是否响应。</string>
-    <string name="sent_pairing">已发送配对指令。\n请确认灯是否响应。\n没有响应时，重新上电后尝试其他兼容模式。</string>
+    <string name="sent">已发送%1$s指令</string>
+    <string name="sent_pairing">配对指令已发送，请观察灯是否闪动两下</string>
     <string name="advertising_failed">蓝牙发送失败（%1$d）。请关闭其他蓝牙控制 App 后重试。</string>
     <string name="send_failed">无法发送：%1$s</string>
     <string name="send_paused">发送已暂停，请回到页面后重试。</string>
+    <string name="sending_progress">正在发送灯具指令</string>
+    <string name="packet_failed">无法生成广播数据</string>
+    <string name="advertising_timeout">蓝牙启动超时，请重试。</string>
+    <string name="temperature_title">色温</string>
+    <string name="temperature_help">从清爽冷白，到柔和暖黄</string>
+    <string name="cold_white">冷白</string>
+    <string name="natural_white">自然白</string>
+    <string name="warm_white">暖黄</string>
+    <string name="brightness_title">亮度</string>
+    <string name="apply_lighting">应用灯光</string>
+    <string name="lighting_action">灯光调节</string>
+    <string name="percent">%1$d%%</string>
+    <string name="timer_title">定时关灯</string>
+    <string name="timer_none">选个时间，让灯陪你到刚好</string>
+    <string name="timer_expected">约 %1$d 分钟后关灯 · %2$s</string>
+    <string name="timer_elapsed">设定的关灯时间已到，请确认灯的状态</string>
+    <string name="minutes_short">%1$d 分钟</string>
+    <string name="set_timer_minutes">设置 %1$d 分钟</string>
+    <string name="timer_action">%1$d 分钟后关灯</string>
+    <string name="cancel_timer">取消定时</string>
+    <string name="timer_help">定时由灯具执行，设好后可以关闭应用。</string>
+    <string name="custom_timer">自定义</string>
+    <string name="timer_minutes_hint">分钟（1–720）</string>
+    <string name="timer_range_error">请输入 1 到 720 分钟</string>
+    <string name="choose">确定</string>
+    <string name="close">取消</string>
+    <string name="appearance_title">个性化</string>
+    <string name="system_colors">跟随系统配色</string>
+    <string name="theme_color">主题颜色</string>
+    <string name="theme_hue">主题色环，色相 %1$d 度</string>
 </resources>

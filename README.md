@@ -1,7 +1,7 @@
 # 本地开灯
 
 Android 手机直接通过 BLE 广播控制 LampSmart Pro 系列灯的实验性客户端
- 支持配对、开灯、关灯，采用 GNU v3 许可证
+ 支持配对、开关、色温、亮度和定时关灯，采用 GNU v3 许可证
  针对店家提供的 `com.jingyuan.lamp`，协议实现参考 [NicoIIT/ha-ble-adv](https://github.com/NicoIIT/ha-ble-adv)
  不同灯的固件可能使用不同协议变体，仍需到灯旁边验证
 
@@ -20,6 +20,18 @@ Android 手机直接通过 BLE 广播控制 LampSmart Pro 系列灯的实验性�
 
 正常控制时墙壁开关需要保持通电
  配对是登记本 App 的控制器编号，不需要在系统蓝牙列表中连接灯
+
+### 色温与定时
+
+色温提供冷白、自然白、暖黄三个快捷按钮，点击即可发送。也可以拖动色温与亮度滑杆，再点击「应用灯光」。色温百分比表示暖光比例：0% 为冷白，100% 为暖黄；不使用未经灯具标定的开尔文数值。亮度范围为 1–100%。
+
+定时提供 15、30、60 分钟，以及 1–720 分钟的自定义时长。选择时长后点击「设置」，点击「取消定时」可撤销。定时指令由灯具执行，完成发送后可以关闭应用；页面保存并显示预计关灯时间，重新打开仍可查看。预计时间根据发送时间计算，请以灯的实际反应为准。
+
+发送时显示 Material 3 波浪进度条，结束后恢复操作按钮。
+
+### 配色
+
+「个性化」默认开启「跟随系统配色」：支持动态配色的 Android 12 及以上手机使用系统 Material 3 颜色，其他设备使用内置蓝色主题。关闭该选项后可选择蓝、绿、紫、玫瑰、琥珀色包，也可以拖动圆形色环选择主题颜色。配色会即时应用并保存，浅色和深色外观跟随系统。
 
 「已发送」表示 Android 已启动广播并完成发送，不代表收到灯的确认
  App 不读取灯的状态
@@ -91,24 +103,29 @@ Windows 首次构建会下载所需的 Gradle 和依赖；Linux 的 `.gradle/`�
 
 ```text
 app/src/main/java/org/openlamp/local/
-    MainActivity.kt                 蓝牙发送和交互逻辑
+    MainActivity.kt                 页面、控制器和 Android 生命周期的连接
+    LampScreen.kt                   完整界面、交互、弹窗、色环与波浪进度
+    LampTheme.kt                    ColorPack 枚举、ThemeSettings 和 M3 配色
+    LampController.kt               蓝牙发送、设置保存与定时记录
+    LampCommand.kt                  开关、配对、色温和定时指令
     LampCodec.kt                    四种协议编码
-app/src/main/res/layout/activity_main.xml  界面布局
 app/src/main/res/values/strings.xml        界面文字
-app/src/main/res/values/styles.xml         配色和样式
+app/src/main/res/values/styles.xml         Material 3 样式
+app/src/main/res/values/colors.xml         默认浅色配色
+app/src/main/res/values-night/colors.xml   默认深色配色
 app/src/main/AndroidManifest.xml          权限与入口
 app/src/test/                            协议回归测试
 app/build.gradle.kts                     Android 构建配置
 settings.gradle.kts                      模块与依赖仓库
 ```
 
-此次迁移保留配对、开灯和关灯功能；亮度、色温控制尚未加入。使用 Android 原生控件，不依赖 Compose 或第三方界面库。
+界面使用 Material Components 的 Material 3 按钮、滑杆、卡片、选项、开关、弹窗和波浪进度条。完整页面放在 `LampScreen.kt`，通过 `LampScreenCallbacks` 接收操作、通过 `LampState` 更新显示；重写 UI 时可以替换这个文件，保留蓝牙和协议实现。`ColorPack` 枚举定义预设色包，`ThemeSettings.useSystemM3` 决定跟随系统还是使用自选主题。
 
 ## 实现与验证
 
-`MainActivity.kt` 使用 Android 原生 BLE 广播 API，将协议字节作为 16 位服务 UUID 列表发送。采用与绿色智灯 Pro 一致的可连接广播，包含 Flags 字段；26 字节协议报文加上 UUID 列表头和 Flags，正好占用传统广播的 31 字节。
+`LampController.kt` 使用 Android 原生 BLE 广播 API，将协议字节作为 16 位服务 UUID 列表发送。采用与绿色智灯 Pro 一致的可连接广播，包含 Flags 字段；26 字节协议报文加上 UUID 列表头和 Flags，正好占用传统广播的 31 字节。
  随机种子生成时排除重复 UUID，避免 Android 去重改变报文
- 每个报文广播 500 毫秒，配对发送 8 次，开关指令发送 4 次。「自动」模式按智灯 Pro、模式 2、模式 3、模式 1 的顺序轮换。
+ 每个报文广播 500 毫秒，配对发送 8 次，其他指令发送 4 次。「自动」模式按智灯 Pro、模式 2、模式 3、模式 1 的顺序轮换。
 
 | 界面模式 | 编码 |
 | --- | --- |
@@ -117,15 +134,17 @@ settings.gradle.kts                      模块与依赖仓库
 | 模式 3 | LampSmart unsigned V2 |
 | 智灯 Pro（推荐） | LampSmart signed V3/s2，报文前缀 `30 82 00` |
 
-协议转换代码位于 `app/src/main/java/org/openlamp/local/LampCodec.kt`，开灯命令为 `0x10`，关灯为 `0x11`，配对为 `0x28`
+协议转换代码位于 `app/src/main/java/org/openlamp/local/LampCodec.kt`。开灯命令为 `0x10`，关灯为 `0x11`，配对为 `0x28`；色温与亮度使用 `0x21`，冷、暖通道分别为 0–255；定时使用 `0x41`，时长以分钟计，低字节在前，零表示取消。
 
 0.3.0 修复了绿色「智灯 Pro」`com.jingyuan.lamp` 1.4.1 的兼容问题：此前三个模式均未覆盖它使用的 V3/s2 参数。新增模式以 `0x82` 参与签名，并选择对应的加密表，同时调整广播类型和重复发送方式。
 
 2026-10-11 已在连接的 PLK110 手机上安装 0.3.0，保留原控制器编号。用户实灯验证确认：配对闪动两下，关灯和开灯均正常。该结果对应上述手机和灯具组合，其他型号仍需实测。
 
-0.3.0 已通过 Release APK 构建、协议测试和 Android Lint 检查。编码测试将原有三种模式的 324 组报文与上游逐字节比较，并将新增模式的 276 组报文与手机上原厂编码库的实际输出比较，全部一致；覆盖配对、开关、不同编号和计数回绕，另检查非法输入是否被拒绝。原厂对照数据的生成方式见 [tests/README.md](tests/README.md)。
+本次新增功能保持版本号 0.3.0。用户实灯确认冷白、暖黄色温切换正常；设置 1 分钟定时并退出应用后，灯正常自动关闭。Release 构建、协议测试和 Android Lint 检查通过；已在手机上检查色包、色环、深色外观、波浪进度、定时输入校验及设置在重新打开后的保留。
 
-普通测试直接执行 `./gradlew testDebugUnitTest`，使用已保存的 600 组对照报文。若要重新生成上游对照报文，则需要 Python 3、OpenSSL 和指定版本的上游检出：
+编码测试将原有三种模式的 324 组报文与上游逐字节比较，将智灯 Pro 模式的 276 组配对、开关报文和 76 组色温、定时报文与手机上原厂编码库的实际输出比较，全部一致。共 676 组，覆盖不同编号、计数回绕、冷暖通道组合、定时取消及分钟数跨字节；另检查亮度、色温和时长的边界及非法输入。原厂对照数据的生成方式见 [tests/README.md](tests/README.md)。
+
+普通测试直接执行 `./gradlew testDebugUnitTest`，使用已保存的 676 组对照报文。若要重新生成上游对照报文，则需要 Python 3、OpenSSL 和指定版本的上游检出：
 
 ```sh
 git clone https://github.com/NicoIIT/ha-ble-adv /tmp/openlamp-reference

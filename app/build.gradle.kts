@@ -59,7 +59,7 @@ abstract class PrepareLicenseAssets : DefaultTask() {
 }
 
 val prepareLicenseAssets by tasks.registering(PrepareLicenseAssets::class) {
-    licenseFiles.from(rootProject.file("LICENSE"), rootProject.file("NOTICE.md"), rootProject.file("UPSTREAM-LICENSE"))
+    licenseFiles.from(rootProject.file("LICENSE"), rootProject.file("NOTICE.md"), rootProject.file("UPSTREAM-LICENSE"), rootProject.file("LICENSE-APACHE-2.0"))
     outputDirectory.set(layout.buildDirectory.dir("license-assets"))
 }
 
@@ -84,5 +84,6 @@ tasks.matching { it.name in setOf("validateSigningDebug", "validateSigningReleas
 }
 
 dependencies {
+    implementation("com.google.android.material:material:1.13.0")
     testImplementation("junit:junit:4.13.2")
 }
