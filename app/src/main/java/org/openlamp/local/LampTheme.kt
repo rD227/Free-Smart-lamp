@@ -1,10 +1,8 @@
 package org.openlamp.local
 
 import android.content.Context
-import android.app.Activity
 import android.content.SharedPreferences
 import android.content.res.Configuration
-import android.os.Build
 import androidx.core.graphics.ColorUtils
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.DynamicColorsOptions
@@ -44,12 +42,17 @@ data class ThemeSettings(
             .putFloat("custom_base_value", customBaseValue).apply()
     }
 
-    fun applyTo(activity: Activity) {
-        // Apply before Activity.onCreate so inflated dialogs share the same complete theme.
-        when {
-            useSystemM3 -> DynamicColors.applyToActivityIfAvailable(activity)
-            Build.VERSION.SDK_INT >= 31 -> DynamicColors.applyToActivityIfAvailable(activity, DynamicColorsOptions.Builder().setContentBasedSource(seed).build())
+    fun createContext(base: Context): Context {
+        if (useSystemM3 || !DynamicColors.isDynamicColorAvailable()) return base
+        val themed = DynamicColors.wrapContextIfAvailable(base,
+            DynamicColorsOptions.Builder().setContentBasedSource(seed).build())
+        if (themed !== base) {
+            // The palette has isolated resources. Explicitly include the complete AppCompat
+            // theme so dialogs and text fields also retain every required widget attribute.
+            themed.theme.applyStyle(R.style.AppTheme, true)
+            themed.theme.applyStyle(MaterialR.style.ThemeOverlay_Material3_PersonalizedColors, true)
         }
+        return themed
     }
 
     companion object {

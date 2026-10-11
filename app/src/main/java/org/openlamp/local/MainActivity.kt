@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
+import com.google.android.material.color.DynamicColors
 
 /** Wires the replaceable screen to the Bluetooth controller and Android lifecycle. */
 class MainActivity : AppCompatActivity() {
@@ -15,7 +16,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         appearance = ThemeSettings.load(getSharedPreferences("appearance", MODE_PRIVATE))
-        appearance.applyTo(this)
+        // Keep the Activity's full base theme stable; custom palettes belong to the screen.
+        DynamicColors.applyToActivityIfAvailable(this)
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         controller = LampController(applicationContext, getSharedPreferences("controller", MODE_PRIVATE))
@@ -25,7 +27,6 @@ class MainActivity : AppCompatActivity() {
         requestBluetoothPermissions()
     }
 
-    @Suppress("DEPRECATION")
     private fun renderScreen() {
         screen = LampScreen(this, controller.state, appearance, LampScreenCallbacks(
             onPower = { on -> send(if (on) LampCommand.ON else LampCommand.OFF, getString(if (on) R.string.turn_on else R.string.turn_off)) },
@@ -45,12 +46,20 @@ class MainActivity : AppCompatActivity() {
             },
             onModeSelected = controller::selectMode,
             onThemeChanged = { next ->
-                appearance = next
-                next.save(getSharedPreferences("appearance", MODE_PRIVATE))
-                recreate()
+                if (next != appearance) {
+                    appearance = next
+                    next.save(getSharedPreferences("appearance", MODE_PRIVATE))
+                    screen = screen.withAppearance(next)
+                    updateWindowColors()
+                }
             },
         ))
         setContentView(screen.root)
+        updateWindowColors()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun updateWindowColors() {
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = screen.colors.surface
         if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false

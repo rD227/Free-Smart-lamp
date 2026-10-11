@@ -80,12 +80,13 @@ data class LampScreenCallbacks(
 
 /** The complete screen lives here. Replace this file without changing Bluetooth or encoding. */
 class LampScreen(
-    base: Context,
+    private val base: Context,
     initialState: LampState,
     private val appearance: ThemeSettings,
     private val callbacks: LampScreenCallbacks,
+    retainedScroll: NestedScrollView? = null,
 ) {
-    private val context = base
+    private val context = appearance.createContext(base)
     val colors = LampColors(context, appearance)
     private var state = initialState
     private val handler = Handler(Looper.getMainLooper())
@@ -112,10 +113,10 @@ class LampScreen(
     private lateinit var timerButton: MaterialButton
     private lateinit var customTimer: Chip
     private lateinit var modeButton: MaterialButton
-    private val scroll = NestedScrollView(context).apply {
+    private val scroll = (retainedScroll ?: NestedScrollView(base)).apply {
         id = R.id.page
         isFillViewport = true
-        // Our Activity restores scrolling before the first frame; avoid a second restorer.
+        // Restore only on Activity recreation; palette changes retain this same scroll view.
         isSaveEnabled = false
         clipToPadding = true
         isVerticalScrollBarEnabled = false
@@ -127,6 +128,13 @@ class LampScreen(
         orientation = LinearLayout.VERTICAL
         setPadding(dp(20), dp(22), dp(20), dp(32))
     }
+    private val pageLayoutListener = View.OnLayoutChangeListener { view, left, _, right, _, _, _, _, _ ->
+        val available = right - left - view.paddingLeft - view.paddingRight
+        val pageWidth = min(available, dp(560))
+        if (pageWidth > 0 && page.layoutParams.width != pageWidth) {
+            page.layoutParams = page.layoutParams.apply { this.width = pageWidth }
+        }
+    }
     private val clock = object : Runnable {
         override fun run() {
             updateTimerSummary()
@@ -135,15 +143,13 @@ class LampScreen(
     }
 
     init {
-        val width = min(context.resources.displayMetrics.widthPixels, dp(560))
+        // Reuse the measured width when recoloring, avoiding an extra layout at screen width.
+        val available = (scroll.width - scroll.paddingLeft - scroll.paddingRight).takeIf { it > 0 }
+            ?: context.resources.displayMetrics.widthPixels
+        val width = min(available, dp(560))
+        scroll.removeAllViews()
         scroll.addView(page, FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL))
-        scroll.addOnLayoutChangeListener { view, left, _, right, _, _, _, _, _ ->
-            val available = right - left - view.paddingLeft - view.paddingRight
-            val pageWidth = min(available, dp(560))
-            if (pageWidth > 0 && page.layoutParams.width != pageWidth) {
-                page.layoutParams = page.layoutParams.apply { this.width = pageWidth }
-            }
-        }
+        scroll.addOnLayoutChangeListener(pageLayoutListener)
         ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
@@ -571,10 +577,37 @@ class LampScreen(
         dialog.show()
     }
 
+    /** Recolor inside the attached scroll view, without Activity/window lifecycle or focus resets. */
+    fun withAppearance(next: ThemeSettings): LampScreen {
+        val position = scrollPosition
+        val focusedId = scroll.findFocus()?.id ?: View.NO_ID
+        val descendantFocusability = scroll.descendantFocusability
+        // Removing a focused child otherwise lets Android focus the first control at the top.
+        scroll.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        scroll.requestFocus()
+        dispose()
+        return LampScreen(base, state, next, callbacks, scroll).also {
+            scroll.doOnPreDraw {
+                scroll.descendantFocusability = descendantFocusability
+                if (focusedId != View.NO_ID && focusedId != scroll.id) {
+                    scroll.findViewById<View>(focusedId)?.requestFocus()
+                }
+                scroll.scrollTo(0, position)
+            }
+        }
+    }
+
     fun restoreScroll(position: Int) { scroll.doOnPreDraw { scroll.scrollTo(0, position) } }
     fun startClock() { if (!clockRunning) { clockRunning = true; handler.post(clock) } }
     fun stopClock() { clockRunning = false; handler.removeCallbacks(clock) }
-    fun dispose() { stopClock(); handler.removeCallbacksAndMessages(null); progressAnimator?.cancel(); continuousWave.setRunning(false); themeHint?.cancel() }
+    fun dispose() {
+        stopClock()
+        handler.removeCallbacksAndMessages(null)
+        progressAnimator?.cancel()
+        continuousWave.setRunning(false)
+        themeHint?.cancel()
+        scroll.removeOnLayoutChangeListener(pageLayoutListener)
+    }
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).roundToInt()
     private fun text(value: String, size: Int, color: Int, bold: Boolean = false) = TextView(context).apply {
