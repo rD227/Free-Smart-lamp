@@ -30,11 +30,15 @@ class MainActivity : AppCompatActivity() {
         screen = LampScreen(this, controller.state, appearance, LampScreenCallbacks(
             onPower = { on -> send(if (on) LampCommand.ON else LampCommand.OFF, getString(if (on) R.string.turn_on else R.string.turn_off)) },
             onPair = { send(LampCommand.PAIR, getString(R.string.pair_action)) },
-            onLightingEdited = controller::editLighting,
-            onApplyLighting = { warmth, brightness ->
-                controller.editLighting(warmth, brightness)
-                send(LampCommand.temperature(warmth, brightness), getString(R.string.lighting_action))
+            onLightingEdited = { warmth, brightness, gestureEnded ->
+                controller.editLighting(warmth, brightness, gestureEnded)
+                requestBluetoothPermissions()
             },
+            onApplyLighting = { warmth, brightness ->
+                controller.applyLighting(warmth, brightness)
+                requestBluetoothPermissions()
+            },
+            onLightingApplyModeSelected = controller::selectLightingApplyMode,
             onTimerSelected = controller::selectTimer,
             onTimer = { minutes ->
                 send(LampCommand.timer(minutes), if (minutes == 0) getString(R.string.cancel_timer) else getString(R.string.timer_action, minutes))

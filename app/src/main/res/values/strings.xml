@@ -38,6 +38,13 @@
     <string name="warm_white">暖黄</string>
     <string name="brightness_title">亮度</string>
     <string name="apply_lighting">应用灯光</string>
+    <string name="lighting_apply_mode">调光方式</string>
+    <string name="apply_on_release">松手应用</string>
+    <string name="apply_while_sliding">滑动发送</string>
+    <string name="apply_manually">按钮应用</string>
+    <string name="apply_on_release_help">拖到喜欢的位置，松手就应用</string>
+    <string name="apply_while_sliding_help">边滑动边调光，松手后确认最终灯光</string>
+    <string name="apply_manually_help">调好色温与亮度，再点「应用灯光」</string>
     <string name="lighting_action">灯光调节</string>
     <string name="percent">%1$d%%</string>
     <string name="timer_title">定时关灯</string>

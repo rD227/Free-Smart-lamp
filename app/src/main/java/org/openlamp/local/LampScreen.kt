@@ -31,6 +31,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
@@ -51,11 +52,17 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import com.google.android.material.R as MaterialR
 
+// Wave motion is independent of the actual Bluetooth transmission duration.
+private const val SEND_WAVE_SPEED_DP_PER_SECOND = 32
+private const val SEND_WAVELENGTH_DP = 28
+private const val SEND_WAVE_AMPLITUDE_DP = 3
+
 data class LampScreenCallbacks(
     val onPower: (Boolean) -> Unit,
     val onPair: () -> Unit,
-    val onLightingEdited: (Int, Int) -> Unit,
+    val onLightingEdited: (Int, Int, Boolean) -> Unit,
     val onApplyLighting: (Int, Int) -> Unit,
+    val onLightingApplyModeSelected: (LightingApplyMode) -> Unit,
     val onTimerSelected: (Int) -> Unit,
     val onTimer: (Int) -> Unit,
     val onModeSelected: (Int) -> Unit,
@@ -76,6 +83,11 @@ class LampScreen(
     private val controls = mutableListOf<View>()
     private val timerChips = mutableMapOf<Int, Chip>()
     private val warmthChips = mutableMapOf<Int, Chip>()
+    private val lightingControls = mutableListOf<View>()
+    private val trackingSliders = mutableSetOf<Slider>()
+    private lateinit var lightingModes: MaterialButtonToggleGroup
+    private lateinit var lightingModeHelp: TextView
+    private var updatingLightingMode = false
     private var progressAnimator: ValueAnimator? = null
     private var clockRunning = false
     private lateinit var status: TextView
@@ -167,9 +179,9 @@ class LampScreen(
             max = 1000
             trackThickness = dp(4)
             trackCornerRadius = dp(2)
-            waveAmplitude = dp(3)
-            setWavelength(dp(28))
-            waveSpeed = dp(32)
+            waveAmplitude = dp(SEND_WAVE_AMPLITUDE_DP)
+            setWavelength(dp(SEND_WAVELENGTH_DP))
+            waveSpeed = dp(SEND_WAVE_SPEED_DP_PER_SECOND)
             setIndicatorColor(colors.primary)
             trackColor = colors.high
             indicatorTrackGapSize = dp(4)
@@ -196,22 +208,19 @@ class LampScreen(
             val chip = chip(context.getString(label)).apply {
                 setOnClickListener {
                     warmth.value = value.toFloat()
-                    editLighting()
                     callbacks.onApplyLighting(value, brightness.value.roundToInt())
                 }
             }
+            lightingControls.add(chip)
             warmthChips[value] = chip
             presets.addView(chip)
         }
         body.addView(presets, fullWidth().apply { topMargin = dp(12) })
         warmth = slider(0, 100, state.warmth, R.id.warmth).apply {
             contentDescription = context.getString(R.string.temperature_title)
-            addOnChangeListener { _, _, _ -> updateLightingLabels() }
-            addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-                override fun onStartTrackingTouch(slider: Slider) { }
-                override fun onStopTrackingTouch(slider: Slider) { editLighting() }
-            })
+            connectLightingSlider(this)
         }
+        lightingControls.add(warmth)
         body.addView(warmth, fullWidth(dp(48)).apply { topMargin = dp(8) })
         val ends = row()
         ends.addView(text(context.getString(R.string.cold_white), 12, colors.secondaryText), weighted())
@@ -224,16 +233,83 @@ class LampScreen(
         body.addView(brightnessTitle, fullWidth().apply { topMargin = dp(22) })
         brightness = slider(1, 100, state.brightness, R.id.brightness).apply {
             contentDescription = context.getString(R.string.brightness_title)
-            addOnChangeListener { _, _, _ -> updateLightingLabels() }
-            addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-                override fun onStartTrackingTouch(slider: Slider) { }
-                override fun onStopTrackingTouch(slider: Slider) { editLighting() }
-            })
+            connectLightingSlider(this)
         }
+        lightingControls.add(brightness)
         body.addView(brightness, fullWidth(dp(48)))
         body.addView(button(context.getString(R.string.apply_lighting), R.id.apply_lighting, tonal = true) {
             callbacks.onApplyLighting(warmth.value.roundToInt(), brightness.value.roundToInt())
-        }, fullWidth(dp(52)).apply { topMargin = dp(12) })
+        }.also { lightingControls.add(it) }, fullWidth(dp(52)).apply { topMargin = dp(12) })
+        lightingModes = MaterialButtonToggleGroup(context).apply {
+            id = R.id.lighting_apply_mode
+            isSingleSelection = true
+            isSelectionRequired = true
+            isSaveEnabled = false
+            contentDescription = context.getString(R.string.lighting_apply_mode)
+        }
+        LightingApplyMode.entries.forEach { mode ->
+            val segment = MaterialButton(context, null, MaterialR.attr.materialButtonOutlinedStyle).apply {
+                id = lightingModeId(mode)
+                text = context.getString(lightingModeLabel(mode))
+                textSize = 13f
+                isAllCaps = false
+                isSaveEnabled = false
+                cornerRadius = dp(24)
+                insetTop = 0
+                insetBottom = 0
+                minimumWidth = 0
+                minWidth = 0
+                setPadding(dp(4), 0, dp(4), 0)
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(colors.outline)
+                backgroundTintList = ColorStateList(
+                    arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(withAlpha(colors.onSurface, 0.12f), colors.primaryContainer, colors.card),
+                )
+                setTextColor(ColorStateList(
+                    arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(withAlpha(colors.onSurface, 0.38f), colors.onPrimaryContainer, colors.secondaryText),
+                ))
+            }
+            controls.add(segment)
+            lightingControls.add(segment)
+            lightingModes.addView(segment, LinearLayout.LayoutParams(0, dp(48), 1f))
+        }
+        lightingModes.addOnButtonCheckedListener { _, id, checked ->
+            if (checked && !updatingLightingMode) {
+                LightingApplyMode.entries.firstOrNull { lightingModeId(it) == id }?.let(callbacks.onLightingApplyModeSelected)
+            }
+        }
+        body.addView(lightingModes, fullWidth().apply { topMargin = dp(16) })
+        lightingModeHelp = text("", 12, colors.secondaryText)
+        body.addView(lightingModeHelp, fullWidth().apply { topMargin = dp(10) })
+    }
+
+    private fun connectLightingSlider(slider: Slider) {
+        slider.addOnChangeListener { source, _, fromUser ->
+            updateLightingLabels()
+            // Keyboard and accessibility changes have no touch-release callback.
+            if (fromUser) editLighting(gestureEnded = source !in trackingSliders)
+        }
+        slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) { trackingSliders.add(slider) }
+            override fun onStopTrackingTouch(slider: Slider) {
+                trackingSliders.remove(slider)
+                editLighting(gestureEnded = true)
+            }
+        })
+    }
+
+    private fun lightingModeId(mode: LightingApplyMode) = when (mode) {
+        LightingApplyMode.ON_RELEASE -> R.id.apply_on_release
+        LightingApplyMode.WHILE_SLIDING -> R.id.apply_while_sliding
+        LightingApplyMode.MANUAL -> R.id.apply_manually
+    }
+
+    private fun lightingModeLabel(mode: LightingApplyMode) = when (mode) {
+        LightingApplyMode.ON_RELEASE -> R.string.apply_on_release
+        LightingApplyMode.WHILE_SLIDING -> R.string.apply_while_sliding
+        LightingApplyMode.MANUAL -> R.string.apply_manually
     }
 
     private fun buildTimer() {
@@ -321,9 +397,19 @@ class LampScreen(
 
     fun update(next: LampState) {
         val wasBusy = state.busy
+        val previousTransmissionId = state.transmissionId
         state = next
         status.text = next.status
         controls.forEach { it.isEnabled = !next.busy }
+        lightingControls.forEach { it.isEnabled = !next.busy || next.sendingLighting }
+        updatingLightingMode = true
+        lightingModes.check(lightingModeId(next.lightingApplyMode))
+        updatingLightingMode = false
+        lightingModeHelp.setText(when (next.lightingApplyMode) {
+            LightingApplyMode.ON_RELEASE -> R.string.apply_on_release_help
+            LightingApplyMode.WHILE_SLIDING -> R.string.apply_while_sliding_help
+            LightingApplyMode.MANUAL -> R.string.apply_manually_help
+        })
         // Theme colors remain available only when the system-color switch is off.
         page.findViewById<View>(R.id.color_wheel)?.apply {
             isEnabled = !next.busy && !appearance.useSystemM3
@@ -339,7 +425,7 @@ class LampScreen(
         timerButton.text = context.getString(R.string.set_timer_minutes, next.timerMinutes)
         modeButton.text = context.resources.getStringArray(R.array.compatibility_modes)[next.mode]
         updateTimerSummary()
-        if (next.busy && !wasBusy) {
+        if (next.busy && (!wasBusy || next.transmissionId != previousTransmissionId)) {
             handler.removeCallbacksAndMessages(null)
             progress.visibility = View.VISIBLE
             progress.setProgressCompat(0, false)
@@ -358,8 +444,8 @@ class LampScreen(
         }
     }
 
-    private fun editLighting() {
-        callbacks.onLightingEdited(warmth.value.roundToInt(), brightness.value.roundToInt())
+    private fun editLighting(gestureEnded: Boolean) {
+        callbacks.onLightingEdited(warmth.value.roundToInt(), brightness.value.roundToInt(), gestureEnded)
     }
 
     private fun updateLightingLabels() {

@@ -7,6 +7,10 @@
     <item name="warmth" type="id" />
     <item name="brightness" type="id" />
     <item name="apply_lighting" type="id" />
+    <item name="lighting_apply_mode" type="id" />
+    <item name="apply_on_release" type="id" />
+    <item name="apply_while_sliding" type="id" />
+    <item name="apply_manually" type="id" />
     <item name="timer_summary" type="id" />
     <item name="set_timer" type="id" />
     <item name="cancel_timer" type="id" />

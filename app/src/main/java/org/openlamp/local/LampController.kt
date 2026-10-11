@@ -22,10 +22,13 @@ data class LampState(
     val mode: Int = 4,
     val warmth: Int = 50,
     val brightness: Int = 100,
+    val lightingApplyMode: LightingApplyMode = LightingApplyMode.MANUAL,
     val timerMinutes: Int = 30,
     val timerDeadline: Long = 0,
     val status: String = "",
     val busy: Boolean = false,
+    val sendingLighting: Boolean = false,
+    val transmissionId: Int = 0,
     val sendDurationMillis: Long = 0,
 )
 
@@ -36,6 +39,7 @@ class LampController(private val context: Context, private val prefs: SharedPref
     private var advertiser: BluetoothLeAdvertiser? = null
     private var activeCallback: AdvertiseCallback? = null
     private var generation = 0
+    private val lightingUpdates = LightingUpdates()
     private val controllerId: Int
     var onStateChanged: (LampState) -> Unit = {}
     var state: LampState
@@ -55,6 +59,7 @@ class LampController(private val context: Context, private val prefs: SharedPref
             mode = prefs.getInt("mode", 4).coerceIn(0, 4),
             warmth = prefs.getInt("warmth", 50).coerceIn(0, 100),
             brightness = prefs.getInt("brightness", 100).coerceIn(1, 100),
+            lightingApplyMode = LightingApplyMode.entries.firstOrNull { it.name == prefs.getString("lighting_apply_mode", null) } ?: LightingApplyMode.MANUAL,
             timerMinutes = prefs.getInt("timer_minutes", 30).coerceIn(1, 720),
             timerDeadline = prefs.getLong("timer_deadline", 0),
             status = context.getString(R.string.ready),
@@ -68,11 +73,48 @@ class LampController(private val context: Context, private val prefs: SharedPref
         update(state.copy(mode = mode))
     }
 
-    fun editLighting(warmth: Int, brightness: Int) {
-        if (state.busy) return
-        require(warmth in 0..100 && brightness in 1..100)
+    fun selectLightingApplyMode(mode: LightingApplyMode) {
+        if (state.busy && !state.sendingLighting) return
+        lightingUpdates.discardPending()
+        prefs.edit().putString("lighting_apply_mode", mode.name).apply()
+        update(state.copy(lightingApplyMode = mode))
+    }
+
+    fun editLighting(warmth: Int, brightness: Int, gestureEnded: Boolean) {
+        if (state.busy && !state.sendingLighting) return
+        val values = LightingValues(warmth, brightness)
+        saveLighting(values)
+        when (state.lightingApplyMode) {
+            LightingApplyMode.MANUAL -> Unit
+            LightingApplyMode.ON_RELEASE -> if (gestureEnded) queueLighting(values, preview = false)
+            LightingApplyMode.WHILE_SLIDING -> queueLighting(values, preview = !gestureEnded)
+        }
+    }
+
+    fun applyLighting(warmth: Int, brightness: Int) {
+        if (state.busy && !state.sendingLighting) return
+        val values = LightingValues(warmth, brightness)
+        saveLighting(values)
+        queueLighting(values, preview = false)
+    }
+
+    private fun saveLighting(values: LightingValues) {
+        val (warmth, brightness) = values
         prefs.edit().putInt("warmth", warmth).putInt("brightness", brightness).apply()
         update(state.copy(warmth = warmth, brightness = brightness))
+    }
+
+    private fun queueLighting(values: LightingValues, preview: Boolean) {
+        lightingUpdates.offer(LightingUpdate(values, preview))
+        if (!state.busy) sendNextLighting()
+    }
+
+    private fun sendNextLighting() {
+        val next = lightingUpdates.take() ?: return
+        if (!sendNow(LampCommand.temperature(next.values.warmth, next.values.brightness), context.getString(R.string.lighting_action), next.preview, lighting = true)) {
+            lightingUpdates.clear()
+            update(state.copy(busy = false, sendingLighting = false))
+        }
     }
 
     fun selectTimer(minutes: Int) {
@@ -87,22 +129,27 @@ class LampController(private val context: Context, private val prefs: SharedPref
             context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
         }
 
-    @SuppressLint("MissingPermission")
     fun send(command: LampCommand, action: String) {
         if (state.busy) return
+        lightingUpdates.clear()
+        sendNow(command, action)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun sendNow(command: LampCommand, action: String, preview: Boolean = false, lighting: Boolean = false): Boolean {
         if (!hasBluetoothPermissions()) {
             update(state.copy(status = context.getString(R.string.permission_required)))
-            return
+            return false
         }
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
         if (adapter == null || !adapter.isEnabled) {
             update(state.copy(status = context.getString(R.string.bluetooth_disabled)))
-            return
+            return false
         }
         advertiser = adapter.bluetoothLeAdvertiser
         if (advertiser == null) {
             update(state.copy(status = context.getString(R.string.advertising_unavailable)))
-            return
+            return false
         }
         val sequence = (prefs.getInt("sequence", 0) + 1) and 255
         prefs.edit().putInt("sequence", sequence).apply()
@@ -120,13 +167,15 @@ class LampController(private val context: Context, private val prefs: SharedPref
             }
         } catch (error: Exception) {
             update(state.copy(status = context.getString(R.string.encoding_failed, error.message)))
-            return
+            return false
         }
-        val repeats = if (command.code == 0x28) 8 / packets.size else maxOf(1, 4 / packets.size)
+        val repeats = if (preview) 1 else if (command.code == 0x28) 8 / packets.size else maxOf(1, 4 / packets.size)
         val transmission = List(repeats) { packets }.flatten()
+        val holdMillis = if (preview) PREVIEW_HOLD_MILLIS else RELIABLE_HOLD_MILLIS
         val token = ++generation
-        update(state.copy(busy = true, status = context.getString(R.string.sending, action), sendDurationMillis = transmission.size * 520L))
-        startPacket(transmission, 0, command, action, token)
+        update(state.copy(busy = true, sendingLighting = lighting, transmissionId = token, status = context.getString(R.string.sending, action), sendDurationMillis = transmission.size * (holdMillis + PACKET_GAP_MILLIS)))
+        startPacket(transmission, 0, command, action, token, holdMillis)
+        return true
     }
 
     private fun advertisingData(payload: ByteArray): AdvertiseData? {
@@ -141,10 +190,17 @@ class LampController(private val context: Context, private val prefs: SharedPref
     }
 
     @SuppressLint("MissingPermission")
-    private fun startPacket(packets: List<AdvertiseData>, index: Int, command: LampCommand, action: String, token: Int) {
+    private fun startPacket(packets: List<AdvertiseData>, index: Int, command: LampCommand, action: String, token: Int, holdMillis: Long) {
         if (token != generation) return
-        if (index == packets.size) {
-            var completed = state.copy(busy = false, status = context.getString(if (command.code == 0x28) R.string.sent_pairing else R.string.sent, action))
+        // A newer slider position can replace remaining retries of an older position.
+        // In automatic compatibility mode, finish one pass through all four variants.
+        val superseded = state.sendingLighting && lightingUpdates.hasPending && index > 0 && (state.mode != 0 || index == packets.size)
+        if (index == packets.size || superseded) {
+            if (state.sendingLighting) {
+                lightingUpdates.finish()
+                if (lightingUpdates.hasPending) { sendNextLighting(); return }
+            }
+            var completed = state.copy(busy = false, sendingLighting = false, status = context.getString(if (command.code == 0x28) R.string.sent_pairing else R.string.sent, action))
             if (command.code == 0x41) {
                 val minutes = command.arg0 or (command.arg1 shl 8)
                 val deadline = if (minutes == 0) 0 else System.currentTimeMillis() + minutes * 60_000L
@@ -172,8 +228,8 @@ class LampController(private val context: Context, private val prefs: SharedPref
                 handler.postDelayed({
                     if (token != generation) return@postDelayed
                     stopAdvertisement()
-                    handler.postDelayed({ startPacket(packets, index + 1, command, action, token) }, 20)
-                }, 500)
+                    handler.postDelayed({ startPacket(packets, index + 1, command, action, token, holdMillis) }, PACKET_GAP_MILLIS)
+                }, holdMillis)
             }
 
             override fun onStartFailure(errorCode: Int) {
@@ -204,13 +260,20 @@ class LampController(private val context: Context, private val prefs: SharedPref
 
     fun cancel() {
         ++generation
+        lightingUpdates.clear()
         handler.removeCallbacksAndMessages(null)
         stopAdvertisement()
-        if (state.busy) update(state.copy(busy = false, status = context.getString(R.string.send_paused)))
+        if (state.busy) update(state.copy(busy = false, sendingLighting = false, status = context.getString(R.string.send_paused)))
     }
 
     private fun update(next: LampState) {
         state = next
         onStateChanged(next)
+    }
+
+    private companion object {
+        const val PREVIEW_HOLD_MILLIS = 160L
+        const val RELIABLE_HOLD_MILLIS = 500L
+        const val PACKET_GAP_MILLIS = 20L
     }
 }
