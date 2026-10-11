@@ -107,6 +107,12 @@ Windows 首次构建会下载所需的 Gradle 和依赖；Linux 的 `.gradle/`�
 
 ## 项目结构
 
+### 界面 Preview
+
+在 Android Studio 选择 `debug` 构建变体，打开 `app/src/debug/res/layout/preview_lamp_controls.xml`，切到 **Design** 或 **Split** 即可预览「灯光控制」和「色温 / 亮度」两张卡片。首次打开前先构建一次 debug，以便加载自定义 View。
+
+预览直接复用 `LampScreen.kt` 的界面：默认准备就绪、色温 50%、亮度 100%、按钮应用，滑杆未拖动，波浪隐藏。可以在 Layout Editor 切换设备尺寸及浅色、深色外观。`app/src/debug/java/org/openlamp/local/LampControlsPreview.kt` 中的 `initialState` 可调整预览值；预览不创建蓝牙控制器，不读写 App 配置、不启动定时刷新，预览入口只包含在 debug 构建中，不需要启动 Activity。
+
 ```text
 app/src/main/java/org/openlamp/local/
     MainActivity.kt                 页面、控制器和 Android 生命周期的连接
