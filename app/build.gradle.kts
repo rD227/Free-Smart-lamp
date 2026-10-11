@@ -48,6 +48,14 @@ android {
 
 }
 
+kotlin {
+    // Select the compiler JDK explicitly instead of inheriting Android Studio's JBR.
+    jvmToolchain(21)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 abstract class PrepareLicenseAssets : DefaultTask() {
     @get:InputFiles
     abstract val licenseFiles: ConfigurableFileCollection

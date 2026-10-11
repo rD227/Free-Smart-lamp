@@ -53,6 +53,8 @@ Android 手机直接通过 BLE 广播控制 LampSmart Pro 系列灯的实验性�
 
 项目固定使用 Gradle 9.3.0、Android Gradle Plugin 9.0.1；AGP 自带 Kotlin 支持。首次构建会下载缺失的编译器、插件及依赖，以后可复用 `~/.gradle/` 中的缓存。
 
+Gradle 守护进程由 `gradle/gradle-daemon-jvm.properties` 固定使用 JDK 21，`app/build.gradle.kts` 的 `jvmToolchain(21)` 同时固定 Java / Kotlin 的编译工具链；Android 的 Java / Kotlin 字节码目标保持 17。项目关闭自动下载 JDK，因此本机需安装 JDK 21；Gradle 可以识别已有的 `~/.gradle/jdks/` 安装。Android Studio 的 Gradle JDK 请选择本机的 JDK 21（例如 `jbr-21`），同步 Gradle 后再构建。IDE 自身可继续使用它附带的 JBR。
+
 在项目根目录创建 `local.properties`，填写本机 SDK 路径，或者设置 `ANDROID_HOME`。`local.properties` 不提交到 Git。
 
 ```sh
